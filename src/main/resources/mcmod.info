@@ -1,0 +1,8 @@
+[{
+  "modid": "captchatest",
+  "name": "Captcha Test",
+  "description": "Teste de desafios numericos exibidos por titulo em servidor proprio.",
+  "version": "${version}",
+  "mcversion": "1.8.9",
+  "clientSideOnly": true
+}]
