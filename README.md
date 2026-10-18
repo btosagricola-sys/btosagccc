@@ -5,7 +5,7 @@ Mod cliente em Java para testar desafios numéricos no seu servidor.
 ## Estado
 
 Compilação concluída com ForgeGradle e remapeamento de produção (`reobfJar`).
-JAR: `build/libs/captcha-test-1.8.9-1.0.0.jar` (Java 8).
+JAR: `build/libs/captcha-test-1.8.9-1.0.1.jar` (Java 8).
 O conteúdo ZIP, os metadados e a versão das classes foram verificados.
 Ainda não foi executado no cliente Minecraft nem testado com o antimacro real.
 
@@ -26,15 +26,15 @@ gradle build --no-daemon
 
 O ForgeGradle legado pode exigir ajustes de infraestrutura devido à idade.
 Não desative TLS, assinaturas ou checksums para contornar falhas de download.
-O resultado esperado é `build/libs/captcha-test-1.8.9-1.0.0.jar`.
+O resultado esperado é `build/libs/captcha-test-1.8.9-1.0.1.jar`.
 Copie esse arquivo para a pasta `mods` do cliente com Forge
 `1.8.9-11.15.1.2318-1.8.9`. O mod não deve ser instalado no servidor.
 
 ## Usar
 
 1. Entre no seu servidor de teste. O mod inicia desativado.
-2. Execute `/captchatest preview`: detecta e mostra o número somente localmente.
-3. Execute `/captchatest on`: envia o número como mensagem normal após 20 ticks.
+2. Execute `/captchatest preview`: mostra localmente o comando `/colher <codigo>`, sem enviar.
+3. Execute `/captchatest on`: envia `/colher <codigo>` após 20 ticks.
 4. Execute `/captchatest off` para parar ou `/captchatest status` para consultar.
 
 O mod volta ao estado desativado ao desconectar ou trocar de conexão.
@@ -55,7 +55,7 @@ Com permissão administrativa, use no servidor de teste:
 ```
 
 Em preview, deve aparecer a detecção local sem mensagem no servidor.
-Em modo on, deve chegar `1234` no chat após aproximadamente um segundo.
+Em modo on, deve ser enviado `/colher 1234` após aproximadamente um segundo.
 Teste também um título não numérico, o comando off e a reconexão.
 Depois repita com o antimacro real para confirmar que usa esse mecanismo.
 Esses testes ainda não foram executados no ambiente de criação.
@@ -64,7 +64,7 @@ Esses testes ainda não foram executados no ambiente de criação.
 
 O cliente já recebe o título como texto. Este mod lê os campos de título da GUI
 com os nomes de desenvolvimento e os nomes SRG usados pelo Forge, remove as
-cores e envia os dígitos. Não é necessário reconhecer uma imagem.
+cores e envia `/colher` seguido dos dígitos. Não é necessário reconhecer uma imagem.
 
 Enviar o desafio como texto permite que qualquer cliente modificado o leia.
 Trocar a posição ou a cor não remove essa limitação. Mesmo um desafio em imagem

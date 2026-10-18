@@ -16,7 +16,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.relauncher.ReflectionHelper;
 
-@Mod(modid = "captchatest", name = "Captcha Test", version = "1.0.0",
+@Mod(modid = "captchatest", name = "Captcha Test", version = "1.0.1",
      acceptedMinecraftVersions = "[1.8.9]", clientSideOnly = true)
 public final class CaptchaTest {
     private final Minecraft mc = Minecraft.getMinecraft();
@@ -59,7 +59,7 @@ public final class CaptchaTest {
                 delay = 20;
             }
             if (pending != null && --delay <= 0) {
-                String answer = pending;
+                String answer = "/colher " + pending;
                 pending = null;
                 if (preview) message("Detectado: " + answer + " (simulacao, nao enviado)");
                 else mc.thePlayer.sendChatMessage(answer);
