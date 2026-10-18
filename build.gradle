@@ -6,7 +6,7 @@ buildscript {
     dependencies { classpath 'net.minecraftforge.gradle:ForgeGradle:2.1-SNAPSHOT' }
 }
 apply plugin: 'net.minecraftforge.gradle.forge'
-version = '1.0.1'
+version = '1.0.2'
 group = 'br.com.btos'
 archivesBaseName = 'captcha-test-1.8.9'
 sourceCompatibility = targetCompatibility = '1.8'

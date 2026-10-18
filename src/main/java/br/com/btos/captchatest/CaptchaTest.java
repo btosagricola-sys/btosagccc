@@ -16,7 +16,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.relauncher.ReflectionHelper;
 
-@Mod(modid = "captchatest", name = "Captcha Test", version = "1.0.1",
+@Mod(modid = "captchatest", name = "Captcha Test", version = "1.0.2",
      acceptedMinecraftVersions = "[1.8.9]", clientSideOnly = true)
 public final class CaptchaTest {
     private final Minecraft mc = Minecraft.getMinecraft();
@@ -24,6 +24,8 @@ public final class CaptchaTest {
     private boolean preview = true;
     private Field title;
     private Field subtitle;
+    private Field titlesTimer;
+    private String lastAction = "Nenhuma resposta enviada.";
     private String previous = "";
     private String pending;
     private int delay;
@@ -33,6 +35,7 @@ public final class CaptchaTest {
     public void init(FMLInitializationEvent event) {
         title = ReflectionHelper.findField(GuiIngame.class, "displayedTitle", "field_175201_x");
         subtitle = ReflectionHelper.findField(GuiIngame.class, "displayedSubTitle", "field_175200_y");
+        titlesTimer = ReflectionHelper.findField(GuiIngame.class, "titlesTimer", "field_175195_w");
         FMLCommonHandler.instance().bus().register(this);
         ClientCommandHandler.instance.registerCommand(new Control());
     }
@@ -40,29 +43,43 @@ public final class CaptchaTest {
     @SubscribeEvent
     public void tick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
-        if (mc.thePlayer == null || mc.theWorld == null || connection != mc.getNetHandler()) {
+        if (mc.thePlayer == null || mc.theWorld == null) {
             enabled = false;
             previous = "";
             pending = null;
-            connection = mc.getNetHandler();
+            connection = null;
             return;
+        }
+        if (connection != mc.getNetHandler()) {
+            connection = mc.getNetHandler();
+            enabled = false;
+            previous = "";
+            pending = null;
+            lastAction = "Nenhuma resposta enviada nesta conexao.";
+            message("v1.0.2 carregado e DESATIVADO. Use /captchatest preview ou /captchatest on.");
         }
         if (!enabled) return;
         try {
             String first = (String) title.get(mc.ingameGUI);
             String second = (String) subtitle.get(mc.ingameGUI);
-            String current = first + "\n" + second;
+            String candidate = extract(first);
+            if (candidate == null) candidate = extract(second);
+            if (titlesTimer.getInt(mc.ingameGUI) <= 0) candidate = null;
+            String current = candidate == null ? "" : candidate;
             if (!current.equals(previous)) {
                 previous = current;
-                pending = extract(first);
-                if (pending == null) pending = extract(second);
+                pending = candidate;
                 delay = 20;
             }
             if (pending != null && --delay <= 0) {
                 String answer = "/colher " + pending;
                 pending = null;
-                if (preview) message("Detectado: " + answer + " (simulacao, nao enviado)");
-                else mc.thePlayer.sendChatMessage(answer);
+                if (preview) lastAction = "Detectado: " + answer + " (simulacao, nao enviado)";
+                else {
+                    mc.thePlayer.sendChatMessage(answer);
+                    lastAction = "Enviado ao servidor: " + answer;
+                }
+                message(lastAction);
             }
         } catch (IllegalAccessException error) {
             enabled = false;
@@ -79,6 +96,24 @@ public final class CaptchaTest {
 
     private void message(String text) {
         if (mc.thePlayer != null) mc.thePlayer.addChatMessage(new ChatComponentText("[CaptchaTest] " + text));
+    }
+
+    private void diagnostic() {
+        message("v1.0.2 - " + (enabled ? (preview ? "SIMULACAO: nao envia comandos" : "ENVIO ATIVO") : "DESATIVADO"));
+        try {
+            message("Titulo lido: [" + readable((String) title.get(mc.ingameGUI)) + "]");
+            message("Subtitulo lido: [" + readable((String) subtitle.get(mc.ingameGUI)) + "]");
+            message("Tempo restante do titulo: " + titlesTimer.getInt(mc.ingameGUI) + " ticks.");
+            message(lastAction);
+        } catch (IllegalAccessException error) {
+            message("Nao foi possivel acessar o titulo.");
+        }
+    }
+
+    private String readable(String text) {
+        if (text == null || text.isEmpty()) return "vazio";
+        String clean = EnumChatFormatting.getTextWithoutFormattingCodes(text);
+        return clean.substring(0, Math.min(160, clean.length())).replace('\n', ' ');
     }
 
     private final class Control extends CommandBase {
@@ -100,7 +135,7 @@ public final class CaptchaTest {
             } else if (!"status".equalsIgnoreCase(args[0])) {
                 message(getCommandUsage(sender)); return;
             }
-            message("Estado: " + (enabled ? (preview ? "simulacao" : "envio ativo") : "desativado"));
+            diagnostic();
         }
     }
 }

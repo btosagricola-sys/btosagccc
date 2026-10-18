@@ -5,7 +5,7 @@ Mod cliente em Java para testar desafios numéricos no seu servidor.
 ## Estado
 
 Compilação concluída com ForgeGradle e remapeamento de produção (`reobfJar`).
-JAR: `build/libs/captcha-test-1.8.9-1.0.1.jar` (Java 8).
+JAR: `build/libs/captcha-test-1.8.9-1.0.2.jar` (Java 8).
 O conteúdo ZIP, os metadados e a versão das classes foram verificados.
 Ainda não foi executado no cliente Minecraft nem testado com o antimacro real.
 
@@ -26,7 +26,7 @@ gradle build --no-daemon
 
 O ForgeGradle legado pode exigir ajustes de infraestrutura devido à idade.
 Não desative TLS, assinaturas ou checksums para contornar falhas de download.
-O resultado esperado é `build/libs/captcha-test-1.8.9-1.0.1.jar`.
+O resultado esperado é `build/libs/captcha-test-1.8.9-1.0.2.jar`.
 Copie esse arquivo para a pasta `mods` do cliente com Forge
 `1.8.9-11.15.1.2318-1.8.9`. O mod não deve ser instalado no servidor.
 
@@ -36,6 +36,11 @@ Copie esse arquivo para a pasta `mods` do cliente com Forge
 2. Execute `/captchatest preview`: mostra localmente o comando `/colher <codigo>`, sem enviar.
 3. Execute `/captchatest on`: envia `/colher <codigo>` após 20 ticks.
 4. Execute `/captchatest off` para parar ou `/captchatest status` para consultar.
+
+Na versão 1.0.2, `/captchatest status` mostra título, subtítulo, tempo restante
+e última ação. A conexão exibe um aviso de que o mod está desativado.
+O envio tem confirmação local. Mudanças apenas no subtítulo não reiniciam a
+espera quando o código continua igual; títulos expirados não são respondidos.
 
 O mod volta ao estado desativado ao desconectar ou trocar de conexão.
 Ele reconhece somente títulos/subtítulos do Minecraft que contenham de 1 a 16
