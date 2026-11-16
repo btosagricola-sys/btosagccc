@@ -1,9 +1,9 @@
 # Captcha Test — Forge 1.8.9
 
-## Versão 1.1.0: menu com vidro verde
+## Versão 1.1.1: menu com vidro verde
 
 O código desta versão substitui a resposta por `/colher <codigo>` por um clique
-no verde do menu mostrado pelo usuário. **JAR 1.1.0 compilado:** `downloads/captcha-test-1.8.9-1.1.0.jar`.
+no verde do menu mostrado pelo usuário. **JAR 1.1.1 compilado:** `downloads/captcha-test-1.8.9-1.1.1.jar`.
 O build completo, os 8 testes e a verificação do JAR passaram.
 Os arquivos em `downloads` das versões 1.0.x continuam sendo do modo antigo.
 
@@ -24,12 +24,15 @@ precisa de uma adaptação adicional.
 
 1. Feche o jogo, retire o JAR antigo e coloque somente o novo na pasta `mods`.
 2. Inicie com Forge `1.8.9-11.15.1.2318-1.8.9`.
-3. Antes de abrir o desafio, use `/captchatest preview` para simular: a posição
-   encontrada será registrada no chat, sem clique.
-4. Use `/captchatest on` e abra novamente o desafio para ativar o clique.
-5. `/captchatest off` desativa. `/captchatest status` mostra estado e última ação.
+3. Ao entrar no servidor, o clique é ativado automaticamente; não é necessário
+   digitar comandos.
+4. Opcionalmente, `/captchatest preview` simula sem clicar e `/captchatest on`
+   reativa o clique.
+5. `/captchatest off` desativa durante a sessão. `/captchatest status` mostra
+   estado e última ação.
 
-O mod inicia desativado e volta a esse estado ao desconectar. Fechar o menu
+Cada nova conexão ativa o mod no modo de clique. Desativar ou simular vale
+somente para a sessão atual; ao reconectar ele volta a clicar automaticamente. Fechar o menu
 normalmente é necessário para abrir o chat e executar os comandos do cliente.
 Não é necessário instalar este mod no servidor.
 
@@ -41,7 +44,7 @@ Use JDK 8 e Gradle 2.14.1 na raiz do repositório:
 gradle build --no-daemon
 ```
 
-Resultado esperado: `build/libs/captcha-test-1.8.9-1.1.0.jar`.
+Resultado esperado: `build/libs/captcha-test-1.8.9-1.1.1.jar`.
 O ForgeGradle 2.1 é legado. Neste ambiente, as ferramentas verificadas estão em
 `/workspace/toolchains`; o init script `forge-legacy.init.gradle` nesse diretório
 usa o host oficial `piston-data.mojang.com` para os downloads antigos do Minecraft
@@ -58,7 +61,7 @@ Eles cobrem todas as 27 posições nas duas cores verdes, títulos formatados,
 menus diferentes, ausência e ambiguidade do verde, slots inválidos, espera,
 movimento durante a espera, cancelamento e um clique por abertura.
 
-A compilação completa do mod e os 8 testes passaram para a versão 1.1.0.
+A compilação completa do mod e os 8 testes passaram para a versão 1.1.1.
 O clique dentro do Minecraft ainda precisa ser validado. No servidor de teste,
 verifique o modo preview, o modo ativo, a reabertura com outra posição, o comando
 off e a desconexão. Confirme que menus comuns e o inventário do jogador não

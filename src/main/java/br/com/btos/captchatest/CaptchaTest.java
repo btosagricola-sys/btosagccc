@@ -20,13 +20,13 @@ import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
-@Mod(modid = "captchatest", name = "Captcha Test", version = "1.1.0",
+@Mod(modid = "captchatest", name = "Captcha Test", version = "1.1.1",
      acceptedMinecraftVersions = "[1.8.9]", clientSideOnly = true)
 public final class CaptchaTest {
     private final Minecraft mc = Minecraft.getMinecraft();
     private final GreenChallenge.Tracker tracker = new GreenChallenge.Tracker();
     private boolean enabled;
-    private boolean preview = true;
+    private boolean preview;
     private Object connection;
     private String lastAction = "Nenhum clique realizado.";
 
@@ -47,10 +47,11 @@ public final class CaptchaTest {
         }
         if (connection != mc.getNetHandler()) {
             connection = mc.getNetHandler();
-            enabled = false;
+            enabled = true;
+            preview = false;
             tracker.reset();
             lastAction = "Nenhum clique realizado nesta conexao.";
-            message("v1.1.0 carregado e DESATIVADO. Use /captchatest preview ou /captchatest on.");
+            message("v1.1.1 ativado automaticamente. Use /captchatest off para desativar.");
         }
         ContainerChest chest = currentChest();
         if (!enabled || chest == null) {
@@ -102,7 +103,7 @@ public final class CaptchaTest {
     }
 
     private void diagnostic() {
-        message("v1.1.0 - " + (enabled ? (preview ? "SIMULACAO: nao clica" : "CLIQUE ATIVO") : "DESATIVADO"));
+        message("v1.1.1 - " + (enabled ? (preview ? "SIMULACAO: nao clica" : "CLIQUE ATIVO") : "DESATIVADO"));
         ContainerChest chest = currentChest();
         if (chest == null) message("Nenhum menu de bau aberto.");
         else {
