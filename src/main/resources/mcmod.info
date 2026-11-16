@@ -1,7 +1,7 @@
 [{
   "modid": "captchatest",
   "name": "Captcha Test",
-  "description": "Teste de desafios numericos exibidos por titulo em servidor proprio.",
+  "description": "Teste de selecao do vidro verde em menu de verificacao no servidor proprio.",
   "version": "${version}",
   "mcversion": "1.8.9",
   "clientSideOnly": true

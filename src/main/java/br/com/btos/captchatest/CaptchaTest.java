@@ -1,41 +1,37 @@
 package br.com.btos.captchatest;
 
-import java.lang.reflect.Field;
+import java.util.Arrays;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiIngame;
+import net.minecraft.client.gui.inventory.GuiChest;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
+import net.minecraft.init.Blocks;
+import net.minecraft.inventory.ContainerChest;
+import net.minecraft.inventory.IInventory;
+import net.minecraft.inventory.Slot;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.ChatComponentText;
-import net.minecraft.util.EnumChatFormatting;
 import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.fml.common.FMLCommonHandler;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
-import net.minecraftforge.fml.relauncher.ReflectionHelper;
 
-@Mod(modid = "captchatest", name = "Captcha Test", version = "1.0.2",
+@Mod(modid = "captchatest", name = "Captcha Test", version = "1.1.0",
      acceptedMinecraftVersions = "[1.8.9]", clientSideOnly = true)
 public final class CaptchaTest {
     private final Minecraft mc = Minecraft.getMinecraft();
+    private final GreenChallenge.Tracker tracker = new GreenChallenge.Tracker();
     private boolean enabled;
     private boolean preview = true;
-    private Field title;
-    private Field subtitle;
-    private Field titlesTimer;
-    private String lastAction = "Nenhuma resposta enviada.";
-    private String previous = "";
-    private String pending;
-    private int delay;
     private Object connection;
+    private String lastAction = "Nenhum clique realizado.";
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
-        title = ReflectionHelper.findField(GuiIngame.class, "displayedTitle", "field_175201_x");
-        subtitle = ReflectionHelper.findField(GuiIngame.class, "displayedSubTitle", "field_175200_y");
-        titlesTimer = ReflectionHelper.findField(GuiIngame.class, "titlesTimer", "field_175195_w");
         FMLCommonHandler.instance().bus().register(this);
         ClientCommandHandler.instance.registerCommand(new Control());
     }
@@ -45,53 +41,60 @@ public final class CaptchaTest {
         if (event.phase != TickEvent.Phase.END) return;
         if (mc.thePlayer == null || mc.theWorld == null) {
             enabled = false;
-            previous = "";
-            pending = null;
             connection = null;
+            tracker.reset();
             return;
         }
         if (connection != mc.getNetHandler()) {
             connection = mc.getNetHandler();
             enabled = false;
-            previous = "";
-            pending = null;
-            lastAction = "Nenhuma resposta enviada nesta conexao.";
-            message("v1.0.2 carregado e DESATIVADO. Use /captchatest preview ou /captchatest on.");
+            tracker.reset();
+            lastAction = "Nenhum clique realizado nesta conexao.";
+            message("v1.1.0 carregado e DESATIVADO. Use /captchatest preview ou /captchatest on.");
         }
-        if (!enabled) return;
-        try {
-            String first = (String) title.get(mc.ingameGUI);
-            String second = (String) subtitle.get(mc.ingameGUI);
-            String candidate = extract(first);
-            if (candidate == null) candidate = extract(second);
-            if (titlesTimer.getInt(mc.ingameGUI) <= 0) candidate = null;
-            String current = candidate == null ? "" : candidate;
-            if (!current.equals(previous)) {
-                previous = current;
-                pending = candidate;
-                delay = 20;
-            }
-            if (pending != null && --delay <= 0) {
-                String answer = "/colher " + pending;
-                pending = null;
-                if (preview) lastAction = "Detectado: " + answer + " (simulacao, nao enviado)";
-                else {
-                    mc.thePlayer.sendChatMessage(answer);
-                    lastAction = "Enviado ao servidor: " + answer;
-                }
-                message(lastAction);
-            }
-        } catch (IllegalAccessException error) {
-            enabled = false;
-            pending = null;
-            message("Falha ao ler o titulo; teste desativado.");
+        ContainerChest chest = currentChest();
+        if (!enabled || chest == null) {
+            tracker.reset();
+            return;
         }
+        int target = tracker.tick(chest, target(chest));
+        if (target < 0) return;
+        IInventory inventory = chest.getLowerChestInventory();
+        Slot slot = chest.getSlot(target);
+        if (slot.inventory != inventory || slot.getSlotIndex() != target) {
+            lastAction = "Slot inesperado; nenhum clique enviado.";
+        } else if (preview) {
+            lastAction = "Verde detectado: linha " + (target / 9 + 1)
+                    + ", coluna " + (target % 9 + 1) + " (simulacao, sem clique).";
+        } else if (mc.thePlayer.inventory.getItemStack() != null) {
+            lastAction = "Ha um item no cursor; nenhum clique enviado. Feche o menu e tente novamente.";
+        } else {
+            // Normal left click, using the current server window and actual slot number.
+            mc.playerController.windowClick(chest.windowId, slot.slotNumber, 0, 0, mc.thePlayer);
+            lastAction = "Clique enviado no verde: linha " + (target / 9 + 1)
+                    + ", coluna " + (target % 9 + 1) + ".";
+        }
+        message(lastAction);
     }
 
-    static String extract(String text) {
-        if (text == null) return null;
-        String clean = EnumChatFormatting.getTextWithoutFormattingCodes(text).trim();
-        return clean.matches("[0-9]{1,16}") ? clean : null;
+    private ContainerChest currentChest() {
+        if (!(mc.currentScreen instanceof GuiChest)
+                || !(mc.thePlayer.openContainer instanceof ContainerChest)) return null;
+        return (ContainerChest) mc.thePlayer.openContainer;
+    }
+
+    private int target(ContainerChest chest) {
+        IInventory inventory = chest.getLowerChestInventory();
+        int[] colors = new int[inventory.getSizeInventory()];
+        Arrays.fill(colors, -1);
+        for (int i = 0; i < colors.length; i++) {
+            ItemStack stack = inventory.getStackInSlot(i);
+            if (stack != null && (stack.getItem() == Item.getItemFromBlock(Blocks.stained_glass_pane)
+                    || stack.getItem() == Item.getItemFromBlock(Blocks.stained_glass))) {
+                colors[i] = stack.getMetadata();
+            }
+        }
+        return GreenChallenge.findTarget(inventory.getDisplayName().getUnformattedText(), colors);
     }
 
     private void message(String text) {
@@ -99,21 +102,17 @@ public final class CaptchaTest {
     }
 
     private void diagnostic() {
-        message("v1.0.2 - " + (enabled ? (preview ? "SIMULACAO: nao envia comandos" : "ENVIO ATIVO") : "DESATIVADO"));
-        try {
-            message("Titulo lido: [" + readable((String) title.get(mc.ingameGUI)) + "]");
-            message("Subtitulo lido: [" + readable((String) subtitle.get(mc.ingameGUI)) + "]");
-            message("Tempo restante do titulo: " + titlesTimer.getInt(mc.ingameGUI) + " ticks.");
-            message(lastAction);
-        } catch (IllegalAccessException error) {
-            message("Nao foi possivel acessar o titulo.");
+        message("v1.1.0 - " + (enabled ? (preview ? "SIMULACAO: nao clica" : "CLIQUE ATIVO") : "DESATIVADO"));
+        ContainerChest chest = currentChest();
+        if (chest == null) message("Nenhum menu de bau aberto.");
+        else {
+            IInventory inventory = chest.getLowerChestInventory();
+            message("Menu: [" + inventory.getDisplayName().getUnformattedText() + "]; slots: " + inventory.getSizeInventory());
+            int selected = target(chest);
+            message(selected < 0 ? "Padrao esperado nao encontrado: 27 vidros, 26 vermelhos e 1 verde."
+                    : "Verde: linha " + (selected / 9 + 1) + ", coluna " + (selected % 9 + 1));
         }
-    }
-
-    private String readable(String text) {
-        if (text == null || text.isEmpty()) return "vazio";
-        String clean = EnumChatFormatting.getTextWithoutFormattingCodes(text);
-        return clean.substring(0, Math.min(160, clean.length())).replace('\n', ' ');
+        message(lastAction);
     }
 
     private final class Control extends CommandBase {
@@ -124,14 +123,12 @@ public final class CaptchaTest {
         @Override public boolean canCommandSenderUseCommand(ICommandSender sender) { return true; }
         @Override public void processCommand(ICommandSender sender, String[] args) throws CommandException {
             if (args.length != 1) { message(getCommandUsage(sender)); return; }
-            if ("off".equalsIgnoreCase(args[0])) { enabled = false; pending = null; }
+            if ("off".equalsIgnoreCase(args[0])) { enabled = false; tracker.reset(); }
             else if ("on".equalsIgnoreCase(args[0]) || "preview".equalsIgnoreCase(args[0])) {
-                if (mc.isSingleplayer()) { message("Conecte ao servidor de teste primeiro."); return; }
                 preview = "preview".equalsIgnoreCase(args[0]);
                 enabled = true;
                 connection = mc.getNetHandler();
-                previous = "";
-                pending = null;
+                tracker.reset();
             } else if (!"status".equalsIgnoreCase(args[0])) {
                 message(getCommandUsage(sender)); return;
             }
