@@ -2,6 +2,8 @@ package br.com.btos.captchatest;
 
 import java.text.Normalizer;
 import java.util.Locale;
+import java.util.Random;
+import java.util.function.LongSupplier;
 
 /** Rules independent of Minecraft, so inventory selection can be tested. */
 final class GreenChallenge {
@@ -21,11 +23,31 @@ final class GreenChallenge {
         return target;
     }
 
-    /** At most one action per open container, after a stable ten-tick target. */
+    /** At most one action per opening, after a random monotonic-time delay. */
     static final class Tracker {
         private Object window;
         private int candidate = -1;
-        private int ticks;
+        private final LongSupplier clock;
+        private final Random random;
+        private long startedAt;
+        private int delayMillis = -1;
+
+        Tracker() { this(System::nanoTime, new Random()); }
+
+        Tracker(LongSupplier clock, Random random) {
+            this.clock = clock;
+            this.random = random;
+        }
+
+        int delayMillis() { return delayMillis; }
+
+        private int nextDelay() {
+            // Uniform over 800..1500, excluding the previous chosen value.
+            boolean hasPrevious = delayMillis >= 800 && delayMillis <= 1500;
+            int chosen = 800 + random.nextInt(hasPrevious ? 700 : 701);
+            if (hasPrevious && chosen >= delayMillis) chosen++;
+            return chosen;
+        }
         private boolean handled;
 
         int tick(Object currentWindow, int target) {
@@ -36,14 +58,15 @@ final class GreenChallenge {
             if (currentWindow == null || handled) return -1;
             if (target < 0) {
                 candidate = -1;
-                ticks = 0;
+                startedAt = 0;
                 return -1;
             }
             if (candidate != target) {
                 candidate = target;
-                ticks = 0;
+                startedAt = clock.getAsLong();
+                delayMillis = nextDelay();
             }
-            if (++ticks < 10) return -1;
+            if (clock.getAsLong() - startedAt < delayMillis * 1_000_000L) return -1;
             handled = true;
             return target;
         }
@@ -51,7 +74,7 @@ final class GreenChallenge {
         void reset() {
             window = null;
             candidate = -1;
-            ticks = 0;
+            startedAt = 0;
             handled = false;
         }
     }

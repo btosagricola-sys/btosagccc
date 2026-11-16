@@ -20,7 +20,7 @@ import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
-@Mod(modid = "captchatest", name = "Captcha Test", version = "1.1.1",
+@Mod(modid = "captchatest", name = "Captcha Test", version = "1.1.2",
      acceptedMinecraftVersions = "[1.8.9]", clientSideOnly = true)
 public final class CaptchaTest {
     private final Minecraft mc = Minecraft.getMinecraft();
@@ -51,7 +51,7 @@ public final class CaptchaTest {
             preview = false;
             tracker.reset();
             lastAction = "Nenhum clique realizado nesta conexao.";
-            message("v1.1.1 ativado automaticamente. Use /captchatest off para desativar.");
+            message("v1.1.2 ativado automaticamente. Use /captchatest off para desativar.");
         }
         ContainerChest chest = currentChest();
         if (!enabled || chest == null) {
@@ -103,7 +103,7 @@ public final class CaptchaTest {
     }
 
     private void diagnostic() {
-        message("v1.1.1 - " + (enabled ? (preview ? "SIMULACAO: nao clica" : "CLIQUE ATIVO") : "DESATIVADO"));
+        message("v1.1.2 - " + (enabled ? (preview ? "SIMULACAO: nao clica" : "CLIQUE ATIVO") : "DESATIVADO"));
         ContainerChest chest = currentChest();
         if (chest == null) message("Nenhum menu de bau aberto.");
         else {

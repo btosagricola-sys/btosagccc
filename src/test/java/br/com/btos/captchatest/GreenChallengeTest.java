@@ -1,6 +1,9 @@
 package br.com.btos.captchatest;
 
 import java.util.Arrays;
+import java.util.Random;
+import java.util.function.LongSupplier;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 
@@ -41,35 +44,75 @@ public class GreenChallengeTest {
         assertEquals(-1, GreenChallenge.findTarget("VERIFICAÇÃO ANTI-MACRO", colors));
     }
 
-    @Test public void clicksOnceAfterTenStableTicksAndRearmsForNewWindow() {
-        GreenChallenge.Tracker tracker = new GreenChallenge.Tracker();
+    private static final class Clock implements LongSupplier {
+        long now;
+        public long getAsLong() { return now; }
+        void advance(int millis) { now += millis * 1_000_000L; }
+    }
+
+    @Test public void clicksAtDeadlineOnlyOnceAndRearmsForNewWindow() {
+        Clock clock = new Clock();
+        GreenChallenge.Tracker tracker = new GreenChallenge.Tracker(clock, new Random(42));
         Object first = new Object();
-        for (int i = 0; i < 9; i++) assertEquals(-1, tracker.tick(first, 13));
+        assertEquals(-1, tracker.tick(first, 13));
+        int delay = tracker.delayMillis();
+        clock.advance(delay - 1);
+        assertEquals(-1, tracker.tick(first, 13));
+        clock.advance(1);
         assertEquals(13, tracker.tick(first, 13));
-        for (int i = 0; i < 50; i++) assertEquals(-1, tracker.tick(first, 13));
-        // A change in the same already-handled window must not cause a second click.
-        for (int i = 0; i < 20; i++) assertEquals(-1, tracker.tick(first, 9));
+        clock.advance(5000);
+        assertEquals(-1, tracker.tick(first, 13));
+        assertEquals(-1, tracker.tick(first, 9));
         Object second = new Object();
-        for (int i = 0; i < 9; i++) assertEquals(-1, tracker.tick(second, 2));
+        assertEquals(-1, tracker.tick(second, 2));
+        assertTrue(delay != tracker.delayMillis());
+        clock.advance(tracker.delayMillis());
         assertEquals(2, tracker.tick(second, 2));
     }
 
     @Test public void revalidatesWhenGreenMovesDuringDelay() {
-        GreenChallenge.Tracker tracker = new GreenChallenge.Tracker();
+        Clock clock = new Clock();
+        GreenChallenge.Tracker tracker = new GreenChallenge.Tracker(clock, new Random(2));
         Object window = new Object();
-        for (int i = 0; i < 9; i++) assertEquals(-1, tracker.tick(window, 0));
-        for (int i = 0; i < 9; i++) assertEquals(-1, tracker.tick(window, 26));
+        assertEquals(-1, tracker.tick(window, 0));
+        clock.advance(tracker.delayMillis() - 1);
+        assertEquals(-1, tracker.tick(window, 26));
+        clock.advance(tracker.delayMillis() - 1);
+        assertEquals(-1, tracker.tick(window, 26));
+        clock.advance(1);
         assertEquals(26, tracker.tick(window, 26));
     }
 
     @Test public void cancelsWhenWindowClosesOrBoardBecomesInvalid() {
-        GreenChallenge.Tracker tracker = new GreenChallenge.Tracker();
+        Clock clock = new Clock();
+        GreenChallenge.Tracker tracker = new GreenChallenge.Tracker(clock, new Random(3));
         Object window = new Object();
-        for (int i = 0; i < 9; i++) assertEquals(-1, tracker.tick(window, 13));
+        assertEquals(-1, tracker.tick(window, 13));
+        clock.advance(700);
         assertEquals(-1, tracker.tick(window, -1));
         assertEquals(-1, tracker.tick(window, 13));
         assertEquals(-1, tracker.tick(null, 13));
-        for (int i = 0; i < 9; i++) assertEquals(-1, tracker.tick(window, 13));
+        clock.advance(5000);
+        assertEquals(-1, tracker.tick(window, 13));
+        clock.advance(tracker.delayMillis());
         assertEquals(13, tracker.tick(window, 13));
+    }
+
+    @Test public void samplesWithinBoundsAndNeverRepeatsPreviousDelay() {
+        Clock clock = new Clock();
+        GreenChallenge.Tracker tracker = new GreenChallenge.Tracker(clock, new Random(123));
+        int previous = -1;
+        boolean sawMinimum = false, sawMaximum = false;
+        for (int i = 0; i < 10000; i++) {
+            tracker.reset();
+            assertEquals(-1, tracker.tick(new Object(), 13));
+            int delay = tracker.delayMillis();
+            assertTrue(delay >= 800 && delay <= 1500);
+            assertTrue(delay != previous);
+            sawMinimum |= delay == 800;
+            sawMaximum |= delay == 1500;
+            previous = delay;
+        }
+        assertTrue(sawMinimum && sawMaximum);
     }
 }
