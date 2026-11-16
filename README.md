@@ -1,9 +1,9 @@
 # Captcha Test — Forge 1.8.9
 
-## Versão 1.1.2: menu com vidro verde
+## Versão 1.1.3: menu com vidro verde
 
 O código desta versão substitui a resposta por `/colher <codigo>` por um clique
-no verde do menu mostrado pelo usuário. **JAR 1.1.2 compilado:** `downloads/captcha-test-1.8.9-1.1.2.jar`.
+no verde do menu mostrado pelo usuário. **JAR 1.1.3 compilado:** `downloads/captcha-test-1.8.9-1.1.3.jar`.
 O build completo, os 9 testes e a verificação do JAR passaram.
 Os arquivos em `downloads` das versões 1.0.x continuam sendo do modo antigo.
 
@@ -13,7 +13,7 @@ vermelhos (metadata 14) e um verde-limão (5) ou verde (13). São aceitos blocos
 e painéis de vidro colorido. A seleção usa somente o inventário superior do
 menu; os itens do jogador não participam.
 
-O alvo deve permanecer estável por um atraso aleatório de 800 a 1500 ms.
+O alvo deve permanecer estável por um atraso aleatório de 1000 a 3000 ms.
 O atraso sorteado difere do sorteio anterior e usa relógio monotônico.
 O clique acontece no primeiro tick do cliente após esse prazo; travamentos
 podem aumentar o tempo observado. O mod faz um clique esquerdo
@@ -47,7 +47,7 @@ Use JDK 8 e Gradle 2.14.1 na raiz do repositório:
 gradle build --no-daemon
 ```
 
-Resultado esperado: `build/libs/captcha-test-1.8.9-1.1.2.jar`.
+Resultado esperado: `build/libs/captcha-test-1.8.9-1.1.3.jar`.
 O ForgeGradle 2.1 é legado. Neste ambiente, as ferramentas verificadas estão em
 `/workspace/toolchains`; o init script `forge-legacy.init.gradle` nesse diretório
 usa o host oficial `piston-data.mojang.com` para os downloads antigos do Minecraft
@@ -64,7 +64,7 @@ Eles cobrem todas as 27 posições nas duas cores verdes, títulos formatados,
 menus diferentes, ausência e ambiguidade do verde, slots inválidos, espera,
 movimento durante a espera, cancelamento e um clique por abertura.
 
-A compilação completa do mod e os 9 testes passaram para a versão 1.1.2.
+A compilação completa do mod e os 9 testes passaram para a versão 1.1.3.
 O clique dentro do Minecraft ainda precisa ser validado. No servidor de teste,
 verifique o modo preview, o modo ativo, a reabertura com outra posição, o comando
 off e a desconexão. Confirme que menus comuns e o inventário do jogador não

@@ -42,9 +42,9 @@ final class GreenChallenge {
         int delayMillis() { return delayMillis; }
 
         private int nextDelay() {
-            // Uniform over 800..1500, excluding the previous chosen value.
-            boolean hasPrevious = delayMillis >= 800 && delayMillis <= 1500;
-            int chosen = 800 + random.nextInt(hasPrevious ? 700 : 701);
+            // Uniform over 1000..3000, excluding the previous chosen value.
+            boolean hasPrevious = delayMillis >= 1000 && delayMillis <= 3000;
+            int chosen = 1000 + random.nextInt(hasPrevious ? 2000 : 2001);
             if (hasPrevious && chosen >= delayMillis) chosen++;
             return chosen;
         }

@@ -103,14 +103,14 @@ public class GreenChallengeTest {
         GreenChallenge.Tracker tracker = new GreenChallenge.Tracker(clock, new Random(123));
         int previous = -1;
         boolean sawMinimum = false, sawMaximum = false;
-        for (int i = 0; i < 10000; i++) {
+        for (int i = 0; i < 100000; i++) {
             tracker.reset();
             assertEquals(-1, tracker.tick(new Object(), 13));
             int delay = tracker.delayMillis();
-            assertTrue(delay >= 800 && delay <= 1500);
+            assertTrue(delay >= 1000 && delay <= 3000);
             assertTrue(delay != previous);
-            sawMinimum |= delay == 800;
-            sawMaximum |= delay == 1500;
+            sawMinimum |= delay == 1000;
+            sawMaximum |= delay == 3000;
             previous = delay;
         }
         assertTrue(sawMinimum && sawMaximum);
