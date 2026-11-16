@@ -3,8 +3,8 @@
 ## Versão 1.1.0: menu com vidro verde
 
 O código desta versão substitui a resposta por `/colher <codigo>` por um clique
-no verde do menu mostrado pelo usuário. **O JAR 1.1.0 ainda não foi gerado:** o
-ambiente bloqueia `maven.minecraftforge.net` com HTTP 403 ao resolver ForgeGradle.
+no verde do menu mostrado pelo usuário. **JAR 1.1.0 compilado:** `downloads/captcha-test-1.8.9-1.1.0.jar`.
+O build completo, os 8 testes e a verificação do JAR passaram.
 Os arquivos em `downloads` das versões 1.0.x continuam sendo do modo antigo.
 
 O cliente reconhece o título `VERIFICAÇÃO ANTI-MACRO`, ignorando cores, acentos
@@ -48,9 +48,8 @@ usa o host oficial `piston-data.mojang.com` para os downloads antigos do Minecra
 e verifica o SHA-1 publicado. A truststore local inclui as CAs do ambiente,
 sem desativar a verificação TLS.
 
-Para destravar o download do Forge nesta máquina, aplique nas configurações do
-ambiente os domínios já registrados no rascunho, salve e publique o ambiente.
-Salvar o rascunho por si só não altera a rede da máquina em execução.
+O acesso ao Forge foi confirmado nesta máquina após a atualização da rede.
+As dependências foram baixadas com TLS e verificação de checksums.
 
 ## Validação
 
@@ -59,8 +58,8 @@ Eles cobrem todas as 27 posições nas duas cores verdes, títulos formatados,
 menus diferentes, ausência e ambiguidade do verde, slots inválidos, espera,
 movimento durante a espera, cancelamento e um clique por abertura.
 
-A compilação completa do mod e o clique dentro do Minecraft ainda não foram
-validados para a versão 1.1.0 devido ao bloqueio do Forge. No servidor de teste,
+A compilação completa do mod e os 8 testes passaram para a versão 1.1.0.
+O clique dentro do Minecraft ainda precisa ser validado. No servidor de teste,
 verifique o modo preview, o modo ativo, a reabertura com outra posição, o comando
 off e a desconexão. Confirme que menus comuns e o inventário do jogador não
 recebem cliques.
