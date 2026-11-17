@@ -2,6 +2,7 @@
 // A mesma tecla inicia/para. Comece na primeira fileira, olhando ao longo dela.
 (function () {
     const RUN = "btos.batata.zig.run", STOP = "btos.batata.zig.stop";
+    const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
     const PITCH = 55;
     const ROW_WIDTH = 1; // Distancia entre fileiras em blocos.
     const SIDE = 1; // 1 = proxima fileira a direita inicial; -1 = a esquerda.
@@ -29,8 +30,49 @@
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
     const farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
     let lastSafe = null, climb = null;
+    let sale = null, saleCooldown = 0;
+    const listeners = [];
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
+
+    function plain(text) {
+        return String(text).replace(/§[0-9a-fk-or]/gi, "").normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    }
+    function releaseKeys() {
+        for (const key of keys) KeyBind.keyBind(key, false);
+    }
+    function receive(text) {
+        if (text === null || GlobalVars.getString(RUN) !== id) return;
+        const message = plain(text.getString());
+        const state = GlobalVars.getString(SALE_STATE);
+        if (state === "idle" && /armazem\s+cheio/.test(message)) GlobalVars.putString(SALE_REQUEST, id);
+        if (state === "confirm" && /batatas?/.test(message)
+                && /vendid|vendeu|venda (?:realizada|efetuada|concluida)/.test(message)
+                && !/nao |erro|falh|insuficiente/.test(message)) GlobalVars.putString(SALE_ACK, id);
+    }
+    function farmMenu() {
+        if (Hud.getOpenScreen() === null) return null;
+        const inv = Player.openInventory();
+        return /^fazenda de batatas?$/.test(plain(inv.getContainerTitle())) ? inv : null;
+    }
+    function sellButton(inv) {
+        const matches = [];
+        // Somente o menu superior: nunca pesquisa itens do inventario do jogador.
+        for (const slot of inv.getSlots("container")) {
+            const item = inv.getSlot(slot);
+            if (!item.isEmpty() && plain(item.getName().getString()) === "vender batatas") matches.push(slot);
+        }
+        return matches.length === 1 ? matches[0] : -1;
+    }
+    function emptyWarehouse(inv) {
+        const slot = sellButton(inv);
+        if (slot < 0) return false;
+        for (const line of inv.getSlot(slot).getLore()) {
+            if (/quantidade\s*:\s*0(?:[.,]0+)?\s+batatas?\b/.test(plain(line.getString()))) return true;
+        }
+        return false;
+    }
 
     function potato(x, y, z) {
         const chunkX = Math.floor(x / 16), chunkZ = Math.floor(z / 16);
@@ -118,10 +160,60 @@
         KeyBind.keyBind("key.jump", false);
     }
     try {
+        GlobalVars.putString(SALE_REQUEST, ""); GlobalVars.putString(SALE_ACK, "");
+        GlobalVars.putString(SALE_STATE, "idle");
+        listeners.push(JsMacros.on("Title", JavaWrapper.methodToJava(e => receive(e.message))));
+        listeners.push(JsMacros.on("RecvMessage", JavaWrapper.methodToJava(e => receive(e.text))));
         Chat.log("[Batata] Zigue-zague ativo: W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             const p = Player.getPlayer();
             if (!p) { reason = "desconectou"; break; }
+            if (saleCooldown > 0 && --saleCooldown === 0) GlobalVars.putString(SALE_STATE, "idle");
+            if (sale === null && GlobalVars.getString(SALE_REQUEST) === id) {
+                releaseKeys();
+                sale = { stage: "menu", ticks: 0, x: p.getX(), y: p.getY(), z: p.getZ() };
+                GlobalVars.putString(SALE_REQUEST, ""); GlobalVars.putString(SALE_STATE, "menu");
+                Chat.log("[Batata] Armazem cheio: abrindo /farms para vender.");
+                Chat.say("/farms");
+            }
+            if (sale !== null) {
+                releaseKeys();
+                sale.ticks++;
+                const inv = farmMenu();
+                if (Hud.getOpenScreen() !== null && inv === null) {
+                    reason = "menu inesperado durante a venda; nenhum clique enviado"; break;
+                }
+                if (sale.stage === "menu") {
+                    if (inv !== null && sale.ticks >= 6) {
+                        const slot = sellButton(inv);
+                        if (slot >= 0) {
+                            if (!inv.getHeld().isEmpty()) { reason = "item no cursor; venda cancelada sem clique"; break; }
+                            sale.stage = "confirm"; sale.ticks = 0;
+                            GlobalVars.putString(SALE_STATE, "confirm");
+                            inv.click(slot);
+                            Chat.log("[Batata] Clique em Vender Batatas enviado; aguardando confirmacao.");
+                        }
+                    }
+                    if (sale.ticks >= 100) { reason = "menu ou botao Vender Batatas nao encontrado"; break; }
+                } else if (sale.stage === "confirm") {
+                    if (GlobalVars.getString(SALE_ACK) === id || (inv !== null && emptyWarehouse(inv))) {
+                        if (inv !== null) inv.close();
+                        sale.stage = "close"; sale.ticks = 0;
+                    } else if (sale.ticks >= 100) {
+                        reason = "venda sem confirmacao; colheita pausada"; break;
+                    }
+                } else if (Hud.getOpenScreen() === null) {
+                    if (Math.hypot(p.getX() - sale.x, p.getZ() - sale.z) > 1.5 || Math.abs(p.getY() - sale.y) > 0.3) {
+                        reason = "posicao mudou durante a venda; reinicie na fileira"; break;
+                    }
+                    sale = null; saleCooldown = 100;
+                    GlobalVars.putString(SALE_ACK, ""); GlobalVars.putString(SALE_STATE, "cooldown");
+                    idle = 0; checkpoint = { x: p.getX(), z: p.getZ() };
+                    Chat.log("[Batata] Venda confirmada; continuando a colheita.");
+                } else if (sale.ticks >= 40) { reason = "menu de venda nao fechou"; break; }
+                Client.waitTick();
+                continue;
+            }
             if (Hud.getOpenScreen() !== null) { reason = "menu aberto"; break; }
             const x = p.getX(), z = p.getZ(), y = Math.floor(p.getY());
             const bx = Math.floor(x), bz = Math.floor(z);
@@ -231,6 +323,11 @@
             Client.waitTick();
         }
     } finally {
+        for (const listener of listeners) {
+            try { JsMacros.off(listener); } catch (ignored) {}
+        }
+        GlobalVars.putString(SALE_REQUEST, ""); GlobalVars.putString(SALE_ACK, "");
+        GlobalVars.putString(SALE_STATE, "off");
         for (const key of keys) {
             try { KeyBind.keyBind(key, false); } catch (ignored) {}
         }

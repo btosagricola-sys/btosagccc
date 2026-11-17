@@ -121,3 +121,31 @@ Treze testes com APIs e movimento simulados passaram: os nove cenários
 anteriores, recuperação de um bloco com retomada da colheita, limite de quatro
 tentativas, liberação do pulo ao abrir menu e parada em queda profunda. A física
 real do salto e as regras deste servidor ainda precisam de teste no jogo.
+
+## Armazém cheio: venda automática
+
+O script monitora `Title` (incluindo actionbar, acima da hotbar) e `RecvMessage`
+para detectar `Armazém cheio`, sem depender de acentos ou cores. Ao receber o
+aviso, solta os comandos de movimento/ataque/pulo e envia `/farms` uma vez.
+
+Espera até 5 segundos pelo menu `Fazenda de Batata` ou `Fazenda de Batatas`.
+Procura exatamente um item chamado `Vender Batatas` nos slots superiores do menu,
+ignorando o inventário do jogador. Envia um único clique normal. Se houver um
+item no cursor, cancela sem clicar.
+
+Após clicar, espera confirmação: mensagem do servidor indicando venda de
+batatas (como `Você vendeu ... batatas`) ou a descrição do botão mostrando
+`Quantidade: 0 batatas`. Só então fecha o menu e retoma a mesma fase do percurso,
+desde que o jogador não tenha sido deslocado significativamente. Um intervalo
+de 5 segundos evita reabrir o menu por repetições do aviso anterior.
+
+Se o comando abrir outro menu, o botão não existir, houver botões ambíguos ou a
+venda não for confirmada em 5 segundos, a macro para e registra o motivo. Não
+presume venda concluída apenas porque o menu fechou. Se o servidor usar outra
+mensagem de confirmação ou outro caminho de menus, envie esse texto para ajustar.
+A tecla de parada e a desconexão continuam funcionando durante a venda. Os
+listeners são removidos ao encerrar o script.
+
+A sintaxe e 21 testes com APIs simuladas passaram, incluindo a venda, retomada,
+timeout, menu inesperado, itens do jogador, item no cursor e avisos repetidos.
+Ainda é necessário testar as mensagens e menus no servidor real.
