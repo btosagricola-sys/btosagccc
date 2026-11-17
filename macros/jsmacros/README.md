@@ -1,48 +1,43 @@
 # Macro de batata — JsMacros / Minecraft 1.21.4
 
-## Instalar a v8
+## Instalar a v9
 
 Pare a macro anterior e substitua **todo** o código por `batata-ziguezague.js`.
 `batata-ziguezague.txt` é a mesma versão como documento de texto, para copiar e
 colar no editor do JsMacros. Vincule a uma tecla livre (ex.: F6), gatilho ao
-pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v8`
+pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v9`
 no chat. O nome antigo do arquivo foi mantido para facilitar a atualização.
 
-## Padrão: ida e volta na mesma fileira
+## Padrão: zigue-zague de ida e volta pelo percurso inteiro
 
-`RETURN_SAME_ROW = true` faz a macro virar 180 graus na beirada, no degrau para
-baixo ou no limite observado da plantação e retornar pela **mesma fileira**.
-Ao chegar ao outro limite, inverte de novo. Ela não muda de linha nem desce
-nesses pontos. Mantém W + Ctrl durante a colheita e solta movimento/ataque para
-se alinhar durante a virada, pelo caminho angular mais curto.
+`REVERSE_FIELD_SWEEP = true` é o padrão da v9. A macro colhe várias fileiras
+em zigue-zague. No degrau, retorna uma vez pela fileira atual para sair da
+beirada; no outro limite, tenta a próxima fileira antes de inverter novamente.
+Ao acabar as fileiras de um lado, inverte o sentido lateral do percurso,
+retorna pela última fileira e revisita as anteriores em ordem inversa. Quando
+chega ao limite oposto, inverte o percurso de novo.
 
-Comece olhando ao longo da fileira, com a ferramenta selecionada. A direção é
-alinhada ao eixo cardinal mais próximo. A colheita só ataca batatas na mira e
-no nível inicial da plantação. Não replanta nem verifica maturidade. O circuito
-pode esperar plantas novas ou percorrer a fileira já colhida enquanto elas
-crescem, conforme o que o servidor mantiver nos blocos.
+O retorno pela mesma fileira é uma manobra de saída, não um circuito permanente
+em uma única linha. A decisão na segunda beirada tenta trocar de fileira
+primeiro, evitando que degraus nas duas pontas prendam a macro nessa linha.
+Os testes verificam uma sequência de fileiras `0, -1, -2, -1, 0, -1, -2`.
 
-Se houver um obstáculo dentro da fileira com batatas do mesmo nível além dele,
-o desvio lateral anterior continua disponível. O retorno na própria fileira
-é usado para os limites e degraus. Se o retorno não tiver chão seguro, aguarda
-em vez de forçar a passagem. Uma queda acidental ainda pode tentar até quatro
-pulos para voltar à última posição válida. Nunca planeja uma descida.
+Comece na primeira fileira, olhando ao longo dela, com as próximas fileiras à
+direita. `SIDE = -1` troca para a esquerda; `ROW_WIDTH` define o espaçamento.
+Mantém W + Ctrl durante a colheita. Movimento/ataque são soltos para alinhar a
+virada pelo arco mais curto. Não desce degraus. Os caminhos exigem apoio no nível
+inicial e espaço para pés e cabeça. Obstáculos no meio da plantação podem
+provocar um desvio lateral, conforme as versões anteriores.
 
-`RETURN_SAME_ROW = false` mantém o modo anterior de troca de fileiras. `SIDE` e
-`ROW_WIDTH` se aplicam aos desvios e a esse modo anterior.
+Não replanta nem verifica maturidade. A continuidade da produção depende do
+crescimento/replantio do servidor. Sem passagem segura ou sem plantas, o modo
+contínuo aguarda e tenta retomar. Calibra a altura inicial se uma planta foi
+interpretada como piso. Uma queda acidental ainda pode tentar quatro pulos
+para voltar ao patamar.
 
-## Operação contínua
-
-`CONTINUOUS = true` mantém o script ativo quando falta passagem ou planta.
-Solta as teclas, aguarda `RETRY_TICKS` (60 ticks, aproximadamente 3 s) e tenta
-novamente. Em menus alheios fica aguardando o fechamento. Se a conexão sumir,
-espera voltar e reavalia a plantação; não faz login ou reconexão por conta própria.
-
-O script calibra a altura inicial se detectar `chao=minecraft:potatoes` com
-apoio válido abaixo. A calibração inicial não permite que ele desça durante
-o percurso. Fora do patamar original ou sem retorno seguro, não força movimento.
-Erros do cliente/API ou um menu de venda incompatível podem exigir intervenção.
-Não há garantia de execução ininterrupta por 24 h sem teste prolongado no jogo.
+Os modos antigos ficam disponíveis para regressão/configuração:
+`REVERSE_FIELD_SWEEP = false` e `RETURN_SAME_ROW = true` reproduzem a v8 de
+linha única. A v9 usa `RETURN_SAME_ROW = false` para não repetir aquele problema.
 
 ## Venda: somente armazém cheio
 
@@ -78,10 +73,19 @@ node --check macros/jsmacros/batata-ziguezague.js
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
 
-A sintaxe e **52 testes com APIs simuladas passaram**. Cobrem ida e volta
+A sintaxe e **55 testes com APIs simuladas passaram**. Cobrem ida e volta
 repetida na mesma linha, limites, degraus, venda, parada manual, crescimento,
 menus, recuperação, rotação e redução de chamadas com cache sem alterar o
 resultado. O modo anterior é usado em parte dos testes de regressão; os testes
-novos também exercitam as opções padrão da v8.
+novos também exercitam as opções padrão da v9.
 
 Ainda falta validar o script na instalação/servidor real e fazer um ensaio longo.
+
+
+## Validação específica da v9
+
+Três testes novos exercitam as opções padrão: percurso por várias fileiras em
+ambos os sentidos, retorno de saída no degrau sem ficar numa única linha e
+parada manual durante a inversão, respeitando o limite angular. Total atual:
+55 testes simulados passaram. A venda e as otimizações de leitura permanecem.
+Não houve ensaio real de 24 horas nem medição de FPS no cliente do usuário.

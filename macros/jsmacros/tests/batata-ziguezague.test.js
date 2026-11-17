@@ -1,7 +1,8 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
-function setup(script = source, continuous = false, sameRow = false) {
-    if (!sameRow) script = script.replace("const RETURN_SAME_ROW = true;", "const RETURN_SAME_ROW = false;");
+function setup(script = source, continuous = false, sameRow = false, fieldSweep = false) {
+    if (!fieldSweep) script = script.replace("const REVERSE_FIELD_SWEEP = true;", "const REVERSE_FIELD_SWEEP = false;");
+    script = script.replace(/const RETURN_SAME_ROW = (true|false);/, "const RETURN_SAME_ROW = " + sameRow + ";");
     if (!continuous) script = script.replace("const CONTINUOUS = true;", "const CONTINUOUS = false;");
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
     const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0 };
@@ -403,7 +404,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v8 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v9 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -576,5 +577,50 @@ test('same-row mode can start empty and resume when potatoes grow on that row', 
     f.run(); released(f);
     assert(f.s.harvests > 0);
     assert(Math.abs(f.s.x - 0.5) < 0.0001);
+});
+function recordWorkingLane(f, lanes) {
+    const lane = Math.round(f.s.x - 0.5) || 0;
+    const aligned = Math.abs(Math.sin(f.s.yaw * Math.PI / 180)) < 0.001;
+    if (f.keys.get('key.forward') && aligned && Math.abs(f.s.x - (lane + 0.5)) < 0.15
+            && lane >= -2 && lane <= 0 && lanes[lanes.length - 1] !== lane) lanes.push(lane);
+}
+test('field sweep visits multiple rows then traverses them in reverse and repeats', () => {
+    const f = setup(source, true, false, true), lanes = [];
+    f.s.onTick = () => {
+        recordWorkingLane(f, lanes);
+        if (f.crops.size === 0) for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) f.crops.add(`${x},${z}`);
+        if (lanes.length >= 7) f.run();
+    };
+    f.run(); released(f);
+    assert.deepStrictEqual(lanes.slice(0, 7), [0, -1, -2, -1, 0, -1, -2]);
+    assert(f.logs.filter(t => t.includes('Percurso invertido')).length >= 2);
+    assert(f.s.harvests > 24);
+});
+test('drop return is temporary and then advances to other upper rows in both sweep directions', () => {
+    const f = setup(source, true, false, true), lanes = [];
+    f.s.lowerFromZ = 4;
+    f.s.onTick = () => {
+        assert(f.s.z + 0.3 < 4);
+        assert.strictEqual(f.s.y, 63.9375);
+        recordWorkingLane(f, lanes);
+        let anyUpper = false;
+        for (let x = -2; x <= 0; x++) for (let z = 0; z < 4; z++) if (f.crops.has(`${x},${z}`)) anyUpper = true;
+        if (!anyUpper) for (let x = -2; x <= 0; x++) for (let z = 0; z < 4; z++) f.crops.add(`${x},${z}`);
+        if (lanes.length >= 7) f.run();
+    };
+    f.run(); released(f);
+    assert.deepStrictEqual(lanes.slice(0, 7), [0, -1, -2, -1, 0, -1, -2]);
+    assert(f.logs.some(t => t.includes('Degrau; retorno de saida')));
+    for (let x = -2; x <= 0; x++) for (let z = 4; z <= 7; z++) assert(f.crops.has(`${x},${z}`));
+});
+test('sweep reversal keeps the shortest smooth turns and manual stop responsive', () => {
+    const f = setup(source, true, false, true);
+    f.s.onTick = () => {
+        if (f.crops.size === 0) for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) f.crops.add(`${x},${z}`);
+        if (f.logs.some(t => t.includes('Percurso invertido'))) f.run();
+    };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Percurso invertido')));
+    assert(f.lookSteps.every(d => Math.abs(d) <= 10.0001));
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

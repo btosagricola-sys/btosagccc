@@ -4,7 +4,8 @@
     const RUN = "btos.batata.zig.run", STOP = "btos.batata.zig.stop";
     const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
     const PITCH = 55;
-    const RETURN_SAME_ROW = true; // Ida e volta na mesma fileira nos limites.
+    const REVERSE_FIELD_SWEEP = true; // Zigue-zague de ida e de volta pelo conjunto de fileiras.
+    const RETURN_SAME_ROW = false; // Opcao antiga: repetir somente uma linha.
     const CACHE_BLOCKS = true;
     const CONTINUOUS = true; // Espera e tenta recuperar, em vez de encerrar por falta de passagem.
     const RETRY_TICKS = 60; // 3 segundos entre novas tentativas.
@@ -29,6 +30,7 @@
     let forward = direction(yaw);
     const fieldAxis = { x: forward.x, z: forward.z };
     let fieldMin = null, fieldMax = null;
+    let returningFromEdge = false;
     // Mantem sempre o mesmo lado global, mesmo depois de inverter o percurso.
     const side = { x: -forward.z * SIDE, z: forward.x * SIDE };
     let sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
@@ -132,7 +134,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Batata] Leitor HUD v8 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Batata] Leitor HUD v9 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -342,6 +344,27 @@
             Chat.log("[Batata] Altura inicial corrigida: a planta nao e o chao.");
         }
     }
+    function reverseFieldBoundary(p, isDrop) {
+        // No degrau, usa a fileira atual para sair uma vez. No outro limite,
+        // deve tentar a proxima fileira antes de inverter de novo.
+        if (isDrop && !returningFromEdge) {
+            if (!reverseSameRow(p, "Degrau; retorno de saida")) return false;
+            returningFromEdge = true;
+            return true;
+        }
+        if (findRoute(p, true)) {
+            returningFromEdge = false;
+            return true;
+        }
+        // Acabaram as fileiras desse lado: inverte o sentido lateral do percurso.
+        // Retorna pela ultima fileira e passa a revisitar as anteriores.
+        if (!reverseSameRow(p, "Limite das fileiras; invertendo o percurso")) return false;
+        side.x = -side.x; side.z = -side.z;
+        sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
+        returningFromEdge = true;
+        Chat.log("[Batata] Percurso invertido: continuara pelas fileiras do outro lado.");
+        return true;
+    }
     function resumeSameRow(p) {
         if (fieldMin !== null) return reverseSameRow(p, "Retomada");
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
@@ -392,7 +415,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Batata] Zigue-zague v8: ida e volta na mesma fileira, sem descer e com leituras reduzidas. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Batata] Zigue-zague v9: zigue-zague de ida e volta pelo percurso inteiro, sem descer. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
@@ -479,10 +502,13 @@
                     // Nao caminha para fora do patamar ou em outro local apos reconectar.
                     if (Math.abs(py - farmY) <= 0.2 && walkable(bx, farmLevel, bz)) {
                         recoveryVisits.clear(); retreatCount = 0; lastRetreat = null; resetBlocked();
-                        side.x = -side.x; side.z = -side.z;
-                        sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
-                        if ((RETURN_SAME_ROW && resumeSameRow(p))
-                                || (!RETURN_SAME_ROW && (findRoute(p, true) || findNearbyWork(p)))) {
+                        if (!REVERSE_FIELD_SWEEP) {
+                            side.x = -side.x; side.z = -side.z;
+                            sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
+                        }
+                        if ((REVERSE_FIELD_SWEEP && (fieldMin !== null ? reverseFieldBoundary(p, false) : findNearbyWork(p)))
+                                || (!REVERSE_FIELD_SWEEP && RETURN_SAME_ROW && resumeSameRow(p))
+                                || (!REVERSE_FIELD_SWEEP && !RETURN_SAME_ROW && (findRoute(p, true) || findNearbyWork(p)))) {
                             idle = 0; checkpoint = { x: x, z: z };
                             Chat.log("[Batata] Passagem/batatas encontradas; retomando automaticamente.");
                         }
@@ -583,6 +609,13 @@
                     for (let d = 1; d <= SCAN; d++) {
                         if (crop(ax + forward.x * d, farmLevel, az + forward.z * d)) cropsBeyond = true;
                     }
+                    if (REVERSE_FIELD_SWEEP && (!groundSupported(ax, farmLevel, az) || !cropsBeyond)) {
+                        if (!reverseFieldBoundary(p, !groundSupported(ax, farmLevel, az))) {
+                            reason = "sem retorno seguro para inverter o percurso";
+                            if (!pauseWork(reason, p)) break;
+                        }
+                        Client.waitTick(); continue;
+                    }
                     if (RETURN_SAME_ROW && (!groundSupported(ax, farmLevel, az) || !cropsBeyond)) {
                         if (!reverseSameRow(p, "Beirada/limite")) {
                             reason = "sem espaco para retornar na mesma fileira";
@@ -614,6 +647,13 @@
                 // Nao vira cedo apenas porque o ataque ja quebrou as plantas na mira.
                 if (missing >= 4 && (end === null || progress >= end - 0.15)) {
                     setKeys(false, false);
+                    if (REVERSE_FIELD_SWEEP && end !== null) {
+                        if (!reverseFieldBoundary(p, false)) {
+                            reason = "sem retorno seguro no final do percurso";
+                            if (!pauseWork(reason, p)) break;
+                        }
+                        Client.waitTick(); continue;
+                    }
                     if (RETURN_SAME_ROW && end !== null) {
                         if (!reverseSameRow(p, "Fim do percurso")) {
                             reason = "sem espaco para retornar no limite";
