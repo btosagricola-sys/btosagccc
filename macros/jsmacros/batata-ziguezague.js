@@ -4,6 +4,8 @@
     const RUN = "btos.batata.zig.run", STOP = "btos.batata.zig.stop";
     const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
     const PITCH = 55;
+    const RETURN_SAME_ROW = true; // Ida e volta na mesma fileira nos limites.
+    const CACHE_BLOCKS = true;
     const CONTINUOUS = true; // Espera e tenta recuperar, em vez de encerrar por falta de passagem.
     const RETRY_TICKS = 60; // 3 segundos entre novas tentativas.
     const TURN_STEP = 10; // Graus por tick: viradas graduais.
@@ -41,6 +43,8 @@
     let sale = null, saleCooldown = 0, hudReader = null;
     let lastHudNotice = "";
     const listeners = [];
+    const blockCache = new Map(), chunkCache = new Map();
+    let cycle = 0;
     let waitingTicks = 0, lastPauseNote = "", disconnected = false;
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
@@ -128,7 +132,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Batata] Leitor HUD v7 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Batata] Leitor HUD v8 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -157,13 +161,31 @@
         };
     }
 
+    function blockAt(x, y, z) {
+        if (!CACHE_BLOCKS) return World.getBlock(x, y, z);
+        const key = x + "," + y + "," + z;
+        if (!blockCache.has(key)) blockCache.set(key, World.getBlock(x, y, z));
+        return blockCache.get(key);
+    }
+    function chunkLoaded(x, z) {
+        const key = x + "," + z;
+        if (!chunkCache.has(key)) chunkCache.set(key, World.isChunkLoaded(x, z));
+        return chunkCache.get(key);
+    }
+    function groundSupported(cx, cy, cz) {
+        const ground = blockAt(cx, cy - 1, cz);
+        if (ground === null) return false;
+        const soil = ["minecraft:farmland", "minecraft:dirt", "minecraft:grass_block", "minecraft:dirt_path"];
+        return soil.indexOf(ground.getId()) >= 0
+            || (!ground.getBlockStateHelper().isLiquid() && ground.getBlockStateHelper().isSolid());
+    }
     function potato(x, y, z) {
         const chunkX = Math.floor(x / 16), chunkZ = Math.floor(z / 16);
-        if (!World.isChunkLoaded(chunkX, chunkZ)) {
+        if (!chunkLoaded(chunkX, chunkZ)) {
             if (CONTINUOUS) return false;
             throw Error("Chunk nao carregado; macro interrompida.");
         }
-        const b = World.getBlock(x, y, z);
+        const b = blockAt(x, y, z);
         return b !== null && b.getId() === "minecraft:potatoes";
     }
     function crop(x, y, z) {
@@ -171,16 +193,13 @@
         return potato(x, y, z) || potato(x, y + 1, z);
     }
     function walkable(cx, cy, cz) {
-        if (!World.isChunkLoaded(Math.floor(cx / 16), Math.floor(cz / 16))) return false;
-        const foot = World.getBlock(cx, cy, cz), head = World.getBlock(cx, cy + 1, cz);
-        const ground = World.getBlock(cx, cy - 1, cz);
-        if (foot === null || head === null || ground === null) return false;
+        if (!chunkLoaded(Math.floor(cx / 16), Math.floor(cz / 16))) return false;
+        const foot = blockAt(cx, cy, cz), head = blockAt(cx, cy + 1, cz);
+        if (foot === null || head === null) return false;
         function clear(b) {
             return ["minecraft:air", "minecraft:cave_air", "minecraft:potatoes"].indexOf(b.getId()) >= 0;
         }
-        const soil = ["minecraft:farmland", "minecraft:dirt", "minecraft:grass_block", "minecraft:dirt_path"];
-        return clear(foot) && clear(head) && (soil.indexOf(ground.getId()) >= 0
-                || (!ground.getBlockStateHelper().isLiquid() && ground.getBlockStateHelper().isSolid()));
+        return clear(foot) && clear(head) && groundSupported(cx, cy, cz);
     }
     function blockedFor(cx, cz) {
         const key = cx + "," + cz;
@@ -190,7 +209,7 @@
     function resetBlocked() { blockedTicks = 0; blockedKey = ""; }
     function describeBlock(cx, cz) {
         function id(y) {
-            const b = World.getBlock(cx, y, cz);
+            const b = blockAt(cx, y, cz);
             return b === null ? "indisponivel" : b.getId();
         }
         return "[" + cx + "," + farmLevel + "," + cz + "] pes=" + id(farmLevel)
@@ -315,13 +334,35 @@
     }
     function calibrateStartingHeight(p) {
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
-        const under = World.getBlock(bx, farmLevel - 1, bz);
+        const under = blockAt(bx, farmLevel - 1, bz);
         // Diagnostico observado: pes=air e chao=potatoes. Isso e altura inicial errada.
         if (under !== null && under.getId() === "minecraft:potatoes" && walkable(bx, farmLevel - 1, bz)) {
             farmLevel--;
             farmY = Math.min(p.getY(), farmLevel - 0.0625);
             Chat.log("[Batata] Altura inicial corrigida: a planta nao e o chao.");
         }
+    }
+    function resumeSameRow(p) {
+        if (fieldMin !== null) return reverseSameRow(p, "Retomada");
+        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+        for (let d = -SCAN; d <= SCAN; d++) {
+            if (crop(bx + fieldAxis.x * d, farmLevel, bz + fieldAxis.z * d)) {
+                phase = "row"; missing = 0; end = null;
+                return true;
+            }
+        }
+        return false;
+    }
+    function reverseSameRow(p, note) {
+        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+        if (!walkable(bx - forward.x, farmLevel, bz - forward.z)) return false;
+        releaseKeys();
+        yaw += 180; forward = direction(yaw);
+        phase = "turnback"; missing = 0; end = null;
+        route = []; retreat = null; resetBlocked();
+        idle = 0; checkpoint = { x: p.getX(), z: p.getZ() };
+        Chat.log("[Batata] " + note + ": voltando pela mesma fileira.");
+        return true;
     }
     function smoothLook(p, targetYaw, targetPitch) {
         const currentYaw = p.getYaw(), currentPitch = p.getPitch();
@@ -335,7 +376,7 @@
         return aligned;
     }
     function setKeys(walk, sprint) {
-        const hit = Player.rayTraceBlock(4.5, false);
+        const hit = phase === "row" && walk ? Player.rayTraceBlock(4.5, false) : null;
         KeyBind.keyBind("key.attack", phase === "row" && walk && hit !== null && hit.getId() === "minecraft:potatoes" && hit.getY() === farmLevel);
         KeyBind.keyBind("key.forward", walk);
         KeyBind.keyBind("key.back", false);
@@ -351,8 +392,9 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Batata] Zigue-zague v7: modo continuo, recuperacao automatica e nivel superior fixo. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Batata] Zigue-zague v8: ida e volta na mesma fileira, sem descer e com leituras reduzidas. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
+            blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
             if (!p) {
                 if (!CONTINUOUS) { reason = "desconectou"; break; }
@@ -363,7 +405,7 @@
                 disconnected = false;
                 pauseWork("Conexao voltou; verificando a plantacao antes de retomar", p);
             }
-            if (hudReader !== null) {
+            if (hudReader !== null && (cycle % 4 === 1 || sale !== null)) {
                 try { hudReader(); }
                 catch (error) { hudReader = null; Chat.log("[Batata] Leitura direta do HUD falhou: " + String(error) + "; eventos continuam ativos."); }
             }
@@ -439,7 +481,8 @@
                         recoveryVisits.clear(); retreatCount = 0; lastRetreat = null; resetBlocked();
                         side.x = -side.x; side.z = -side.z;
                         sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
-                        if (findRoute(p, true) || findNearbyWork(p)) {
+                        if ((RETURN_SAME_ROW && resumeSameRow(p))
+                                || (!RETURN_SAME_ROW && (findRoute(p, true) || findNearbyWork(p)))) {
                             idle = 0; checkpoint = { x: x, z: z };
                             Chat.log("[Batata] Passagem/batatas encontradas; retomando automaticamente.");
                         }
@@ -458,6 +501,11 @@
                 climb = { target: lastSafe, resume: phase, ticks: 0, turnTicks: 0, stable: 0, previousY: py };
                 phase = "climb";
                 Chat.log("[Batata] Caiu um degrau: tentando pular de volta para a plantacao.");
+            }
+            if (phase === "turnback") {
+                releaseKeys();
+                if (smoothLook(p, yaw, PITCH)) phase = "row";
+                Client.waitTick(); continue;
             }
             if (phase === "climb") {
                 if (py < farmY - 1.3 || !walkable(Math.floor(climb.target.x), farmLevel, Math.floor(climb.target.z))) {
@@ -535,6 +583,13 @@
                     for (let d = 1; d <= SCAN; d++) {
                         if (crop(ax + forward.x * d, farmLevel, az + forward.z * d)) cropsBeyond = true;
                     }
+                    if (RETURN_SAME_ROW && (!groundSupported(ax, farmLevel, az) || !cropsBeyond)) {
+                        if (!reverseSameRow(p, "Beirada/limite")) {
+                            reason = "sem espaco para retornar na mesma fileira";
+                            if (!pauseWork(reason, p)) break;
+                        }
+                        Client.waitTick(); continue;
+                    }
                     // Sem batatas no mesmo nivel depois do bloqueio: parede ou beirada.
                     // Prioriza a proxima fileira em vez de limpar os cantos.
                     if (!recover(p, !cropsBeyond)) { reason = "sem passagem no nivel superior: " + describeBlock(ax, az); if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
@@ -559,6 +614,13 @@
                 // Nao vira cedo apenas porque o ataque ja quebrou as plantas na mira.
                 if (missing >= 4 && (end === null || progress >= end - 0.15)) {
                     setKeys(false, false);
+                    if (RETURN_SAME_ROW && end !== null) {
+                        if (!reverseSameRow(p, "Fim do percurso")) {
+                            reason = "sem espaco para retornar no limite";
+                            if (!pauseWork(reason, p)) break;
+                        }
+                        Client.waitTick(); continue;
+                    }
                     if (!findRoute(p, true)) { reason = "nao ha batatas na proxima fileira no mesmo nivel"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                     idle = 0; checkpoint = { x: x, z: z };
                 } else setKeys(facingRow, facingRow);

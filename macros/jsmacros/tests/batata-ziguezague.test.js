@@ -1,12 +1,15 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
-function setup(script = source, continuous = false) {
+function setup(script = source, continuous = false, sameRow = false) {
+    if (!sameRow) script = script.replace("const RETURN_SAME_ROW = true;", "const RETURN_SAME_ROW = false;");
     if (!continuous) script = script.replace("const CONTINUOUS = true;", "const CONTINUOUS = false;");
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0 };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0 };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
     function ground(x, z) { return (s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
     function block(x, y, z) {
+        s.blockReads++;
+        s.blockReads++;
         const solid = (y === 64 || y === 65) && (solids.has(`${x},${z}`) || (s.hideSides && x !== 0));
         const cropY = s.lowerFromZ !== null && z >= s.lowerFromZ ? 63 : 64;
         const id = solid ? 'minecraft:hay_block' : y === cropY - 1 && ground(x, z) ? 'minecraft:farmland'
@@ -14,6 +17,7 @@ function setup(script = source, continuous = false) {
         return { getId: () => id, getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
     }
     function ray() {
+        s.rayReads++;
         const r = s.yaw * Math.PI / 180, dx = Math.round(-Math.sin(r)), dz = Math.round(Math.cos(r));
         for (let i = 0; i <= 1; i++) {
             const x = Math.floor(s.x) + dx * i, z = Math.floor(s.z) + dz * i;
@@ -399,7 +403,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v7 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v8 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -493,5 +497,84 @@ test('blocked continuous harvesting retries instead of terminating itself', () =
     assert.strictEqual(f.s.ticks, 700);
     assert(f.logs.some(t => t.includes('Aguardando recuperacao automatica')));
     assert.strictEqual(f.logs.filter(t => t.startsWith('[Batata] Parada:')).length, 1);
+});
+test('same-row mode repeatedly reverses without changing lanes or crossing a drop', () => {
+    const f = setup(source, true, true); f.s.lowerFromZ = 8;
+    f.s.onTick = () => {
+        assert(Math.abs(f.s.x - 0.5) < 0.0001);
+        assert(f.s.z + 0.3 < 8);
+        assert.strictEqual(f.s.y, 63.9375);
+        if (![...f.crops].some(pos => pos.startsWith('0,'))) {
+            for (let z = 0; z <= 7; z++) f.crops.add(`0,${z}`);
+        }
+        if (f.s.ticks >= 1600) f.run();
+    };
+    f.run(); released(f);
+    assert.strictEqual(f.s.ticks, 1600);
+    assert(f.logs.filter(t => t.includes('voltando pela mesma fileira')).length >= 4);
+    assert(f.s.harvests > 16);
+});
+test('same-row mode at a lower ledge returns in place instead of taking another row', () => {
+    const f = setup(source, true, true); f.s.lowerFromZ = 4;
+    f.s.onTick = () => {
+        assert(Math.abs(f.s.x - 0.5) < 0.0001);
+        assert(f.s.z + 0.3 < 4);
+        if (f.s.ticks >= 700) f.run();
+    };
+    f.run(); released(f);
+    assert(f.logs.filter(t => t.includes('voltando pela mesma fileira')).length >= 2);
+    assert(!f.logs.some(t => t.includes('passando para outra fileira')));
+});
+test('same-row turns release movement and attack until aligned', () => {
+    const f = setup(source, true, true);
+    let turningTicks = 0;
+    f.s.onTick = () => {
+        const offAxis = Math.abs(Math.sin(f.s.yaw * Math.PI / 180)) > 0.001;
+        if (offAxis) {
+            turningTicks++;
+            assert.strictEqual(f.keys.get('key.forward'), false);
+            assert.strictEqual(f.keys.get('key.attack'), false);
+        }
+        if (f.s.ticks >= 400) f.run();
+    };
+    f.run(); released(f);
+    assert(turningTicks > 0);
+});
+test('same-row mode still sells only on the full notice and resumes', () => {
+    const f = setup(source, true, true);
+    f.s.onSay = () => { f.s.menu = {}; };
+    f.s.onClick = () => { f.s.quantity = '0'; };
+    f.s.onTick = () => {
+        if (f.s.ticks === 50) f.emit('Title', 'Armazém cheio!');
+        if (f.s.ticks >= 350) f.run();
+    };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert.strictEqual(f.s.closed, 1);
+    assert(f.logs.some(t => t.includes('Venda confirmada')));
+    assert(f.s.harvests > 4);
+});
+test('per-cycle block cache reduces world reads without changing the harvest result', () => {
+    function run(script) {
+        const f = setup(script);
+        for (const x of [0, -1]) for (const z of [3, 4]) {
+            f.solids.add(`${x},${z}`); f.crops.delete(`${x},${z}`);
+        }
+        f.run(); released(f); return f;
+    }
+    const cached = run(source), uncached = run(source.replace('const CACHE_BLOCKS = true;', 'const CACHE_BLOCKS = false;'));
+    assert(cached.s.blockReads < uncached.s.blockReads);
+    assert.strictEqual(cached.s.harvests, uncached.s.harvests);
+    assert.strictEqual(cached.s.ticks, uncached.s.ticks);
+});
+test('same-row mode can start empty and resume when potatoes grow on that row', () => {
+    const f = setup(source, true, true); f.crops.clear();
+    f.s.onTick = () => {
+        if (f.s.ticks === 150) for (let z = 0; z <= 7; z++) f.crops.add(`0,${z}`);
+        if (f.s.ticks >= 450) f.run();
+    };
+    f.run(); released(f);
+    assert(f.s.harvests > 0);
+    assert(Math.abs(f.s.x - 0.5) < 0.0001);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
