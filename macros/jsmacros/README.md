@@ -103,3 +103,21 @@ fileira com retorno colhendo. Ainda falta validar os desvios no Minecraft real.
 ```sh
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
+
+### Recuperação ao cair um degrau
+
+A macro registra o nível inicial da plantação e a última posição com apoio
+nesse nível. Se cair aproximadamente um bloco, tenta voltar a essa posição,
+soltando Shift e dando pulsos de pulo. Após detectar a volta ao chão, retoma a
+fase anterior (colheita, troca de fileira ou desvio). O ataque continua limitado
+às batatas na mira.
+
+O retorno deve estar a até 3 blocos de distância horizontal e continuar livre.
+Há no máximo quatro tentativas, em 80 ticks. Quedas de mais de aproximadamente
+1,3 bloco, retorno bloqueado ou falha ao subir fazem o script parar e liberar
+as teclas. O pulo pode alterar a farmland conforme as regras do servidor.
+
+Treze testes com APIs e movimento simulados passaram: os nove cenários
+anteriores, recuperação de um bloco com retomada da colheita, limite de quatro
+tentativas, liberação do pulo ao abrir menu e parada em queda profunda. A física
+real do salto e as regras deste servidor ainda precisam de teste no jogo.

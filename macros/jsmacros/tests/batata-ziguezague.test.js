@@ -2,7 +2,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
 function setup() {
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set();
-    const s = { x: 0.5, z: 0.5, yaw: 0, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
     function ground(x, z) { return x >= -3 && x <= 1 && z >= -1 && z <= 9; }
     function block(x, y, z) {
@@ -20,7 +20,7 @@ function setup() {
         }
         return null;
     }
-    const p = { getX: () => s.x, getY: () => 63.9375, getZ: () => s.z, getYaw: () => s.yaw,
+    const p = { getX: () => s.x, getY: () => s.y, getZ: () => s.z, getYaw: () => s.yaw,
         lookAt: yaw => { if (s.yaw !== yaw) turns.push(yaw); s.yaw = yaw; } };
     let run;
     const ctx = vm.createContext({
@@ -32,6 +32,10 @@ function setup() {
         KeyBind: { keyBind: (k, v) => keys.set(k, v) },
         Client: { waitTick: () => {
             if (++s.ticks > 4000) throw Error('loop exceeded test bound');
+            const jumping = keys.get('key.jump') === true;
+            if (jumping && !s.jumpLast) s.jumps++;
+            s.jumpLast = jumping;
+            if (jumping && s.allowClimb && s.y < 63.9375) s.y = 63.9375;
             if (keys.get('key.attack')) { const hit = ray(); if (hit) { assert.strictEqual(hit.getId(), 'minecraft:potatoes'); crops.delete(hit.pos); } }
             if (keys.get('key.forward') && s.move) {
                 const r = s.yaw * Math.PI / 180;
@@ -50,7 +54,7 @@ function setup() {
     return { s, keys, crops, logs, turns, solids, run };
 }
 function released(f) {
-    for (const k of ['key.forward', 'key.sprint', 'key.attack', 'key.sneak']) assert.strictEqual(f.keys.get(k), false);
+    for (const k of ['key.forward', 'key.sprint', 'key.attack', 'key.sneak', 'key.jump']) assert.strictEqual(f.keys.get(k), false);
 }
 let count = 0;
 function test(name, fn) { fn(); count++; console.log('OK: ' + name); }
@@ -99,5 +103,36 @@ test('wall at row end triggers lane change and return harvest', () => {
     f.run(); released(f);
     assert(f.logs.some(t => t.includes('Parede/fim')));
     assert.strictEqual(f.crops.size, 0);
+});
+test('one-block drop jumps back up and resumes harvesting', () => {
+    const f = setup();
+    f.s.onTick = () => { if (f.s.ticks === 1) f.s.y -= 1; };
+    f.run(); released(f);
+    assert(f.s.jumps >= 1);
+    assert(f.logs.some(t => t.includes('Voltou para cima')));
+    assert.strictEqual(f.crops.size, 0);
+});
+test('unsuccessful climb stops after four jump attempts', () => {
+    const f = setup(); f.s.allowClimb = false;
+    f.s.onTick = () => { if (f.s.ticks === 1) f.s.y -= 1; };
+    f.run(); released(f);
+    assert.strictEqual(f.s.jumps, 4);
+    assert(f.logs.some(t => t.includes('quatro tentativas')));
+});
+test('menu during climb releases jump and all other controls', () => {
+    const f = setup();
+    f.s.onTick = () => {
+        if (f.s.ticks === 1) f.s.y -= 1;
+        if (f.s.ticks === 2) f.s.menu = {};
+    };
+    f.run(); released(f);
+    assert(f.s.jumps >= 1);
+});
+test('deep falls stop rather than repeatedly jumping', () => {
+    const f = setup();
+    f.s.onTick = () => { if (f.s.ticks === 1) f.s.y -= 2; };
+    f.run(); released(f);
+    assert.strictEqual(f.s.jumps, 0);
+    assert(f.logs.some(t => t.includes('queda sem retorno')));
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

@@ -7,7 +7,7 @@
     const SIDE = 1; // 1 = proxima fileira a direita inicial; -1 = a esquerda.
     const DETOUR_RADIUS = 8; // Limite do desvio local, em blocos.
     const SCAN = 6; // Tolera pequenos espacos sem plantas.
-    const keys = ["key.forward", "key.sprint", "key.attack", "key.sneak"];
+    const keys = ["key.forward", "key.sprint", "key.attack", "key.sneak", "key.jump"];
     const current = GlobalVars.getString(RUN);
     if (current) { GlobalVars.putString(STOP, current); return; }
     const first = Player.getPlayer();
@@ -27,6 +27,8 @@
     let phase = "row", destination = null, end = null;
     let route = [], routeIndex = 0, reverseAfterRoute = false;
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
+    const farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
+    let lastSafe = null, climb = null;
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
 
@@ -113,6 +115,7 @@
         KeyBind.keyBind("key.forward", walk);
         KeyBind.keyBind("key.sprint", sprint);
         KeyBind.keyBind("key.sneak", !!careful);
+        KeyBind.keyBind("key.jump", false);
     }
     try {
         Chat.log("[Batata] Zigue-zague ativo: W + Ctrl. Aperte a mesma tecla para parar.");
@@ -122,6 +125,45 @@
             if (Hud.getOpenScreen() !== null) { reason = "menu aberto"; break; }
             const x = p.getX(), z = p.getZ(), y = Math.floor(p.getY());
             const bx = Math.floor(x), bz = Math.floor(z);
+            const py = p.getY();
+            if (phase !== "climb" && Math.abs(py - farmY) <= 0.15 && walkable(bx, farmLevel, bz)) {
+                lastSafe = { x: bx + 0.5, z: bz + 0.5 };
+            }
+            if (phase !== "climb" && py < farmY - 0.6) {
+                if (py < farmY - 1.3 || lastSafe === null
+                        || Math.hypot(lastSafe.x - x, lastSafe.z - z) > 3) {
+                    reason = "queda sem retorno de um bloco ao alcance"; break;
+                }
+                climb = { target: lastSafe, resume: phase, ticks: 0, stable: 0, previousY: py };
+                phase = "climb";
+                Chat.log("[Batata] Caiu um degrau: tentando pular de volta para a plantacao.");
+            }
+            if (phase === "climb") {
+                if (py < farmY - 1.3 || !walkable(Math.floor(climb.target.x), farmLevel, Math.floor(climb.target.z))) {
+                    reason = "queda profunda ou ponto de retorno bloqueado"; break;
+                }
+                const distance = Math.hypot(climb.target.x - x, climb.target.z - z);
+                const landed = Math.abs(py - farmY) <= 0.15 && Math.abs(py - climb.previousY) < 0.02
+                        && distance <= 0.4 && walkable(bx, farmLevel, bz);
+                climb.stable = landed ? climb.stable + 1 : 0;
+                climb.previousY = py;
+                if (climb.stable >= 2) {
+                    phase = climb.resume; climb = null;
+                    idle = 0; checkpoint = { x: x, z: z };
+                    setKeys(false, false);
+                    Chat.log("[Batata] Voltou para cima; continuando a colheita.");
+                } else if (climb.ticks >= 80) {
+                    reason = "nao conseguiu subir apos quatro tentativas de pulo"; break;
+                } else {
+                    p.lookAt(Math.atan2(-(climb.target.x - x), climb.target.z - z) * 180 / Math.PI, PITCH);
+                    setKeys(distance > 0.18, false, false);
+                    // Pulsos de pulo, liberando entre tentativas. Nao segura Shift.
+                    KeyBind.keyBind("key.jump", climb.ticks % 20 < 6);
+                    climb.ticks++;
+                }
+                Client.waitTick();
+                continue;
+            }
             if (phase === "row" && !walkable(bx + forward.x, Math.ceil(p.getY() - 0.01), bz + forward.z)) {
                 setKeys(false, false);
                 if (!recover(p)) { reason = "sem passagem local para desviar ou voltar"; break; }
