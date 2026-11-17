@@ -27,6 +27,7 @@
     const sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
     let phase = "row", destination = null, end = null;
     let route = [], routeIndex = 0, reverseAfterRoute = false;
+    let blockedTicks = 0, blockedKey = "";
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
     const farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
     let lastSafe = null, climb = null;
@@ -96,6 +97,20 @@
         return clear(foot) && clear(head) && (soil.indexOf(ground.getId()) >= 0
                 || (!ground.getBlockStateHelper().isLiquid() && ground.getBlockStateHelper().isSolid()));
     }
+    function blockedFor(cx, cz) {
+        const key = cx + "," + cz;
+        if (key !== blockedKey) { blockedKey = key; blockedTicks = 0; }
+        return ++blockedTicks;
+    }
+    function resetBlocked() { blockedTicks = 0; blockedKey = ""; }
+    function describeBlock(cx, cz) {
+        function id(y) {
+            const b = World.getBlock(cx, y, cz);
+            return b === null ? "indisponivel" : b.getId();
+        }
+        return "[" + cx + "," + farmLevel + "," + cz + "] pes=" + id(farmLevel)
+            + " cabeca=" + id(farmLevel + 1) + " chao=" + id(farmLevel - 1);
+    }
     function pathTo(sx, sz, gx, gz, cy) {
         if (!walkable(gx, cy, gz)) return null;
         const queue = [{ x: sx, z: sz, previous: -1 }], seen = new Set([sx + "," + sz]);
@@ -119,7 +134,7 @@
         return null;
     }
     function recover(p) {
-        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ()), cy = Math.ceil(p.getY() - 0.01);
+        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ()), cy = farmLevel;
         // Primeiro tenta retornar a mesma fileira depois do obstaculo.
         for (let d = 2; d <= DETOUR_RADIUS; d++) {
             const gx = bx + forward.x * d, gz = bz + forward.z * d;
@@ -256,10 +271,15 @@
                 Client.waitTick();
                 continue;
             }
-            if (phase === "row" && !walkable(bx + forward.x, Math.ceil(p.getY() - 0.01), bz + forward.z)) {
-                setKeys(false, false);
-                if (!recover(p)) { reason = "sem passagem local para desviar ou voltar"; break; }
-                idle = 0; checkpoint = { x: x, z: z };
+            // Usa o nivel da plantacao, nao o Y arredondado a cada oscilacao dos pes.
+            if (phase === "row") {
+                const ax = bx + forward.x, az = bz + forward.z;
+                if (!walkable(ax, farmLevel, az)) {
+                    setKeys(false, false);
+                    if (blockedFor(ax, az) < 3) { Client.waitTick(); continue; }
+                    if (!recover(p)) { reason = "sem passagem local: " + describeBlock(ax, az); break; }
+                    resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
+                } else resetBlocked();
             }
             if (phase === "row") {
                 p.lookAt(yaw, PITCH);
@@ -296,9 +316,14 @@
                         if (reverseAfterRoute) { yaw += 180; forward = direction(yaw); }
                         phase = "row"; end = null; missing = 0;
                     }
-                } else if (!walkable(Math.floor(point.x), Math.ceil(p.getY() - 0.01), Math.floor(point.z))) {
-                    reason = "passagem do desvio foi bloqueada"; break;
+                } else if (!walkable(Math.floor(point.x), farmLevel, Math.floor(point.z))) {
+                    setKeys(false, false);
+                    const px = Math.floor(point.x), pz = Math.floor(point.z);
+                    if (blockedFor(px, pz) < 10) { Client.waitTick(); continue; }
+                    if (!recover(p)) { reason = "passagem bloqueada: " + describeBlock(px, pz); break; }
+                    resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
                 } else {
+                    resetBlocked();
                     p.lookAt(Math.atan2(-(point.x - x), point.z - z) * 180 / Math.PI, PITCH);
                     setKeys(true, false, true);
                 }

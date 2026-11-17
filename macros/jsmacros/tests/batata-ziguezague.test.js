@@ -229,4 +229,23 @@ test('repeated full messages during sale and cooldown do not resend commands', (
     assert.deepStrictEqual(f.commands, ['/farms']);
     assert.deepStrictEqual(f.clicks, [20]);
 });
+test('small height oscillations over farmland do not invent an obstacle', () => {
+    const f = setup();
+    f.s.onTick = () => { f.s.y = f.s.ticks % 2 ? 64.03 : 63.9375; };
+    f.run(); released(f);
+    assert.strictEqual(f.crops.size, 0);
+    assert(!f.logs.some(t => t.includes('Contornando')));
+    assert(!f.logs.some(t => t.includes('passagem bloqueada')));
+});
+test('height oscillations do not invalidate a real obstacle detour', () => {
+    const f = setup();
+    for (const x of [0, -1]) for (const z of [3, 4]) {
+        f.solids.add(`${x},${z}`); f.crops.delete(`${x},${z}`);
+    }
+    f.s.onTick = () => { f.s.y = f.s.ticks % 2 ? 64.03 : 63.9375; };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Contornando')));
+    assert.strictEqual(f.crops.size, 0);
+    assert(!f.logs.some(t => t.includes('passagem bloqueada')));
+});
 console.log(count + ' tests passed (mocked JsMacros APIs).');

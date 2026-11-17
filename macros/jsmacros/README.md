@@ -149,3 +149,20 @@ listeners são removidos ao encerrar o script.
 A sintaxe e 21 testes com APIs simuladas passaram, incluindo a venda, retomada,
 timeout, menu inesperado, itens do jogador, item no cursor e avisos repetidos.
 Ainda é necessário testar as mensagens e menus no servidor real.
+
+## Correção de falso obstáculo por altura
+
+A navegação e o replanejamento usam o nível da plantação registrado ao iniciar,
+em vez de recalcular `ceil(Y)` a cada tick. Pequenas oscilações nos pés sobre
+farmland não fazem mais a leitura passar um bloco acima e interpretar plantas
+como ausência de chão. A recuperação por salto continua tratando quedas.
+
+A macro confirma uma passagem obstruída por 3 leituras antes de desviar. Se um
+ponto do desvio parecer bloqueado, para o movimento, espera até 10 leituras e
+replaneja, em vez de encerrar imediatamente. Quando não existe caminho, registra
+coordenadas e os IDs dos blocos nos pés, cabeça e chão para diagnóstico.
+
+A sintaxe e 23 testes simulados passaram, incluindo as novas regressões de
+oscilação de altura com e sem obstáculo real. Essa correção trata uma condição
+reproduzida nos testes; a causa exata da parada no servidor ainda precisa ser
+confirmada no jogo. Se acontecer novamente, envie a mensagem completa com IDs.
