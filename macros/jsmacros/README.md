@@ -1,11 +1,11 @@
 # Macro de batata e cenoura — JsMacros / Minecraft 1.21.4
 
-## Instalar a v11
+## Instalar a v12
 
 Pare a macro anterior e substitua **todo** o código por `batata-ziguezague.js`.
 `batata-ziguezague.txt` é a mesma versão como documento de texto, para copiar e
 colar no editor do JsMacros. Vincule a uma tecla livre (ex.: F6), gatilho ao
-pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v11`
+pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v12`
 no chat. O nome antigo do arquivo foi mantido para facilitar a atualização.
 
 ## Padrão: zigue-zague de ida e volta pelo percurso inteiro
@@ -135,3 +135,24 @@ A sintaxe e 63 testes simulados passaram: as seis verificações novas cobrem
 colheita de cenoura no modo padrão, venda e recibo de cenoura, rejeição de recibo
 ou botão de batata na fazenda de cenoura e calibração de altura sobre cenouras.
 Ainda é necessário testar a colheita e o menu de cenouras no servidor real.
+
+
+## v12: não tratar um canto local como fim de todas as fileiras
+
+A procura de acesso à próxima fileira agora considera até seis blocos para trás
+ao longo da parede, em vez de dois. Isso permite alcançar uma fileira que termina
+antes da atual, como em um canto recuado, mantendo o sentido lateral do percurso.
+O caminho continua exigindo o mesmo nível, apoio e espaço para o jogador.
+
+Se ainda não houver acesso local, a primeira falha é registrada por fileira e
+sentido lateral. A macro retorna pela própria fileira sem trocar o lado da
+progressão, para verificar a outra ponta. Só falhas em pontos longitudinalmente
+distintos autorizam inverter todo o percurso. Repetições no mesmo ponto têm
+limite e levam à espera do modo contínuo, não a inversões laterais imediatas.
+Os registros são limpos ao encontrar a próxima fileira ou confirmar a inversão.
+
+A sintaxe e 65 testes simulados passaram. Dois casos novos representam um canto
+em que as fileiras seguintes terminam quatro blocos antes da primeira: a macro
+precisa visitar a terceira fileira e depois retornar na ordem correta. O cenário
+também foi testado com cenoura, mantendo os blocos da parede e sem agachar.
+Ainda é necessário validar o canto real mostrado pelo usuário.

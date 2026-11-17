@@ -47,6 +47,7 @@
     let farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
     let lastSafe = null, climb = null;
     const recoveryVisits = new Map();
+    const boundaryMisses = new Map();
     let sale = null, saleCooldown = 0, hudReader = null;
     let lastHudNotice = "";
     const listeners = [];
@@ -148,7 +149,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v11 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v12 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -277,7 +278,7 @@
         }
         // Parede/fim: procura outra fileira, ainda do lado escolhido, e inverte.
         for (let lane = 1; lane <= 6; lane++) {
-            for (let back = 0; back <= 2; back++) {
+            for (let back = 0; back <= 6; back++) {
                 const gx = bx + side.x * ROW_WIDTH * lane - forward.x * back;
                 const gz = bz + side.z * ROW_WIDTH * lane - forward.z * back;
                 let potatoes = false;
@@ -382,6 +383,11 @@
             Chat.log("[Colheita] Lado do percurso corrigido para as fileiras do patamar superior.");
         }
     }
+    function sweepBoundaryKey(p) {
+        const lx = -fieldAxis.z, lz = fieldAxis.x;
+        const lane = Math.floor(p.getX()) * lx + Math.floor(p.getZ()) * lz;
+        return lane + ":" + (side.x * lx + side.z * lz);
+    }
     function reverseFieldBoundary(p, isDrop) {
         // No degrau, usa a fileira atual para sair uma vez. No outro limite,
         // deve tentar a proxima fileira antes de inverter de novo.
@@ -391,9 +397,25 @@
             chooseUpperContinuation(p);
             return true;
         }
+        const key = sweepBoundaryKey(p);
         if (findRoute(p, true)) {
+            boundaryMisses.delete(key);
             return true;
         }
+        const progress = p.getX() * fieldAxis.x + p.getZ() * fieldAxis.z;
+        const previous = boundaryMisses.get(key);
+        if (previous === undefined) {
+            if (boundaryMisses.size > 256) boundaryMisses.clear();
+            boundaryMisses.set(key, { progress: progress, attempts: 1 });
+            return reverseSameRow(p, "Canto sem acesso; verificando a outra ponta sem trocar o lado");
+        }
+        if (Math.abs(progress - previous.progress) < 0.75) {
+            previous.attempts++;
+            if (previous.attempts > 2) return false;
+            return reverseSameRow(p, "Rechecando acesso pelo mesmo lado do percurso");
+        }
+        boundaryMisses.delete(key);
+        // Somente falhas em pontas distintas confirmam o limite das fileiras.
         // Acabaram as fileiras desse lado: inverte o sentido lateral do percurso.
         // Retorna pela ultima fileira e passa a revisitar as anteriores.
         if (!reverseSameRow(p, "Limite das fileiras; invertendo o percurso")) return false;
@@ -453,7 +475,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v11: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v12: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();

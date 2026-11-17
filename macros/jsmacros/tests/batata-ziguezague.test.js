@@ -403,7 +403,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v11 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v12 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -700,5 +700,38 @@ test('starting height is calibrated above carrots as well as potatoes', () => {
     f.run(); released(f);
     assert(f.logs.some(t => t.includes('Altura inicial corrigida')));
     assert.strictEqual(f.crops.size, 0);
+});
+test('inset wall corner does not trap the sweep between the same two rows', () => {
+    const f = setup(source, true, false, true), lanes = [];
+    // Adjacent rows end four blocks before the starting row. The old two-block
+    // search incorrectly considered this local corner the lateral field edge.
+    for (const x of [-1, -2]) for (let z = 4; z <= 9; z++) {
+        f.solids.add(`${x},${z}`); f.crops.delete(`${x},${z}`);
+    }
+    f.s.onTick = () => {
+        recordWorkingLane(f, lanes);
+        if (f.crops.size === 0) {
+            for (let z = 0; z <= 7; z++) f.crops.add(`0,${z}`);
+            for (const x of [-1, -2]) for (let z = 0; z <= 3; z++) f.crops.add(`${x},${z}`);
+        }
+        if (lanes.length >= 5) f.run();
+    };
+    f.run(); released(f);
+    assert.deepStrictEqual(lanes.slice(0, 5), [0, -1, -2, -1, 0]);
+});
+test('corner sweep works with carrots too and keeps all obstacle blocks intact', () => {
+    const f = setup(source, true, false, true); f.s.cropId = 'minecraft:carrots';
+    const lanes = [];
+    for (const x of [-1, -2]) for (let z = 4; z <= 9; z++) {
+        f.solids.add(`${x},${z}`); f.crops.delete(`${x},${z}`);
+    }
+    f.s.onTick = () => {
+        recordWorkingLane(f, lanes);
+        if (lanes.length >= 3) f.run();
+    };
+    f.run(); released(f);
+    assert.deepStrictEqual(lanes.slice(0, 3), [0, -1, -2]);
+    assert.strictEqual(f.solids.size, 12);
+    assert(!f.keyHistory.some(([key, down]) => key === 'key.sneak' && down));
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
