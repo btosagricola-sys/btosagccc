@@ -1,11 +1,11 @@
 # Macro de batata — JsMacros / Minecraft 1.21.4
 
-## Instalar a v9
+## Instalar a v10
 
 Pare a macro anterior e substitua **todo** o código por `batata-ziguezague.js`.
 `batata-ziguezague.txt` é a mesma versão como documento de texto, para copiar e
 colar no editor do JsMacros. Vincule a uma tecla livre (ex.: F6), gatilho ao
-pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v9`
+pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v10`
 no chat. O nome antigo do arquivo foi mantido para facilitar a atualização.
 
 ## Padrão: zigue-zague de ida e volta pelo percurso inteiro
@@ -73,11 +73,11 @@ node --check macros/jsmacros/batata-ziguezague.js
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
 
-A sintaxe e **55 testes com APIs simuladas passaram**. Cobrem ida e volta
+A sintaxe e **57 testes com APIs simuladas passaram**. Cobrem ida e volta
 repetida na mesma linha, limites, degraus, venda, parada manual, crescimento,
 menus, recuperação, rotação e redução de chamadas com cache sem alterar o
 resultado. O modo anterior é usado em parte dos testes de regressão; os testes
-novos também exercitam as opções padrão da v9.
+novos também exercitam as opções padrão da v10.
 
 Ainda falta validar o script na instalação/servidor real e fazer um ensaio longo.
 
@@ -89,3 +89,23 @@ ambos os sentidos, retorno de saída no degrau sem ficar numa única linha e
 parada manual durante a inversão, respeitando o limite angular. Total atual:
 55 testes simulados passaram. A venda e as otimizações de leitura permanecem.
 Não houve ensaio real de 24 horas nem medição de FPS no cliente do usuário.
+
+
+## v10: retorno de saída único e continuação pelo lado superior
+
+A primeira manobra de saída do degrau é registrada. Depois dela, novas beiradas
+não disparam esse retorno pela mesma fileira novamente: a macro tenta primeiro
+a próxima fileira e continua o zigue-zague. O retorno de inversão do percurso
+inteiro permanece quando realmente acabam as fileiras do lado atual.
+
+Após a primeira manobra, compara ambos os lados usando até três fileiras
+conectadas e seis blocos ao longo do sentido de retorno. Só pontua plantas com
+apoio e espaço no nível inicial. Se o lado oposto tem mais continuação segura,
+corrige o sentido lateral para esse lado. Isso é uma avaliação local, não um
+mapa completo da plantação. Uma nova fileira também precisa ter passagem para
+o primeiro bloco à frente, evitando escolher um destino logo contra a beirada.
+
+Os 57 testes simulados passaram. As duas regressões novas verificam que o
+retorno de saída ocorre uma única vez e que um lado com mais fileiras superiores
+é escolhido em vez de avançar para a borda rebaixada. Ainda falta confirmar o
+percurso no jogo real.

@@ -5,14 +5,14 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
     script = script.replace(/const RETURN_SAME_ROW = (true|false);/, "const RETURN_SAME_ROW = " + sameRow + ";");
     if (!continuous) script = script.replace("const CONTINUOUS = true;", "const CONTINUOUS = false;");
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0 };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, lowerFromX: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0 };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
     function ground(x, z) { return (s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
     function block(x, y, z) {
         s.blockReads++;
         s.blockReads++;
         const solid = (y === 64 || y === 65) && (solids.has(`${x},${z}`) || (s.hideSides && x !== 0));
-        const cropY = s.lowerFromZ !== null && z >= s.lowerFromZ ? 63 : 64;
+        const cropY = (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64;
         const id = solid ? 'minecraft:hay_block' : y === cropY - 1 && ground(x, z) ? 'minecraft:farmland'
             : y === cropY && crops.has(`${x},${z}`) ? 'minecraft:potatoes' : 'minecraft:air';
         return { getId: () => id, getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
@@ -23,7 +23,7 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
         for (let i = 0; i <= 1; i++) {
             const x = Math.floor(s.x) + dx * i, z = Math.floor(s.z) + dz * i;
             if (solids.has(`${x},${z}`)) return { getId: () => 'minecraft:hay_block' };
-            if (crops.has(`${x},${z}`)) return { getId: () => 'minecraft:potatoes', getY: () => s.lowerFromZ !== null && z >= s.lowerFromZ ? 63 : 64, pos: `${x},${z}` };
+            if (crops.has(`${x},${z}`)) return { getId: () => 'minecraft:potatoes', getY: () => (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64, pos: `${x},${z}` };
         }
         return null;
     }
@@ -404,7 +404,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v9 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v10 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -582,7 +582,7 @@ function recordWorkingLane(f, lanes) {
     const lane = Math.round(f.s.x - 0.5) || 0;
     const aligned = Math.abs(Math.sin(f.s.yaw * Math.PI / 180)) < 0.001;
     if (f.keys.get('key.forward') && aligned && Math.abs(f.s.x - (lane + 0.5)) < 0.15
-            && lane >= -2 && lane <= 0 && lanes[lanes.length - 1] !== lane) lanes.push(lane);
+            && lanes[lanes.length - 1] !== lane) lanes.push(lane);
 }
 test('field sweep visits multiple rows then traverses them in reverse and repeats', () => {
     const f = setup(source, true, false, true), lanes = [];
@@ -622,5 +622,35 @@ test('sweep reversal keeps the shortest smooth turns and manual stop responsive'
     f.run(); released(f);
     assert(f.logs.some(t => t.includes('Percurso invertido')));
     assert(f.lookSteps.every(d => Math.abs(d) <= 10.0001));
+});
+test('drop exit happens once, then each subsequent boundary changes to another row', () => {
+    const f = setup(source, true, false, true); f.s.lowerFromZ = 4;
+    const lanes = [];
+    f.s.onTick = () => {
+        recordWorkingLane(f, lanes);
+        let any = false;
+        for (let x = -2; x <= 0; x++) for (let z = 0; z < 4; z++) if (f.crops.has(`${x},${z}`)) any = true;
+        if (!any) for (let x = -2; x <= 0; x++) for (let z = 0; z < 4; z++) f.crops.add(`${x},${z}`);
+        if (lanes.length >= 5) f.run();
+    };
+    f.run(); released(f);
+    assert.deepStrictEqual(lanes.slice(0, 5), [0, -1, -2, -1, 0]);
+    assert.strictEqual(f.logs.filter(t => t.includes('Degrau; retorno de saida')).length, 1);
+});
+test('after exiting a drop chooses the upper side rather than progressing toward the lower border', () => {
+    const f = setup(source, true, false, true);
+    f.s.lowerFromZ = 4; f.s.lowerFromX = -2; f.s.mirror = true; f.crops.clear();
+    for (let x = -2; x <= 2; x++) for (let z = 0; z < 4; z++) f.crops.add(`${x},${z}`);
+    const lanes = [];
+    f.s.onTick = () => {
+        recordWorkingLane(f, lanes);
+        assert(f.s.x - 0.3 > -2);
+        assert(f.s.z + 0.3 < 4);
+        if (lanes.length >= 3) f.run();
+    };
+    f.run(); released(f);
+    assert.deepStrictEqual(lanes.slice(0, 3), [0, 1, 2]);
+    assert(f.logs.some(t => t.includes('Lado do percurso corrigido')));
+    assert.strictEqual(f.logs.filter(t => t.includes('Degrau; retorno de saida')).length, 1);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

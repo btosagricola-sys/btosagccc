@@ -30,7 +30,7 @@
     let forward = direction(yaw);
     const fieldAxis = { x: forward.x, z: forward.z };
     let fieldMin = null, fieldMax = null;
-    let returningFromEdge = false;
+    let edgeExitCompleted = false;
     // Mantem sempre o mesmo lado global, mesmo depois de inverter o percurso.
     const side = { x: -forward.z * SIDE, z: forward.x * SIDE };
     let sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
@@ -134,7 +134,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Batata] Leitor HUD v9 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Batata] Leitor HUD v10 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -270,7 +270,7 @@
                 for (let d = 0; d <= SCAN; d++) {
                     if (crop(gx - forward.x * d, cy, gz - forward.z * d)) potatoes = true;
                 }
-                if (!potatoes) continue;
+                if (!potatoes || !walkable(gx - forward.x, cy, gz - forward.z)) continue;
                 const path = pathTo(bx, bz, gx, gz, cy);
                 if (path !== null) {
                     route = path; routeIndex = 0; routeOrigin = { x: p.getX(), z: p.getZ() }; reverseAfterRoute = true; phase = "route";
@@ -344,16 +344,40 @@
             Chat.log("[Batata] Altura inicial corrigida: a planta nao e o chao.");
         }
     }
+    function upperSideScore(p, sign) {
+        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+        let score = 0;
+        // Compara apenas fileiras ligadas ao patamar atual; nao pontua ilhas
+        // do outro lado de um degrau/gap como se fossem continuacao acessivel.
+        for (let lane = 1; lane <= 3; lane++) {
+            const gx = bx + side.x * sign * ROW_WIDTH * lane;
+            const gz = bz + side.z * sign * ROW_WIDTH * lane;
+            if (!walkable(gx, farmLevel, gz)) break;
+            for (let d = 0; d <= SCAN; d++) {
+                const cx = gx + forward.x * d, cz = gz + forward.z * d;
+                if (walkable(cx, farmLevel, cz) && crop(cx, farmLevel, cz)) score++;
+            }
+        }
+        return score;
+    }
+    function chooseUpperContinuation(p) {
+        const keep = upperSideScore(p, 1), other = upperSideScore(p, -1);
+        if (other > keep) {
+            side.x = -side.x; side.z = -side.z;
+            sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
+            Chat.log("[Batata] Lado do percurso corrigido para as fileiras do patamar superior.");
+        }
+    }
     function reverseFieldBoundary(p, isDrop) {
         // No degrau, usa a fileira atual para sair uma vez. No outro limite,
         // deve tentar a proxima fileira antes de inverter de novo.
-        if (isDrop && !returningFromEdge) {
+        if (isDrop && !edgeExitCompleted) {
             if (!reverseSameRow(p, "Degrau; retorno de saida")) return false;
-            returningFromEdge = true;
+            edgeExitCompleted = true;
+            chooseUpperContinuation(p);
             return true;
         }
         if (findRoute(p, true)) {
-            returningFromEdge = false;
             return true;
         }
         // Acabaram as fileiras desse lado: inverte o sentido lateral do percurso.
@@ -361,7 +385,6 @@
         if (!reverseSameRow(p, "Limite das fileiras; invertendo o percurso")) return false;
         side.x = -side.x; side.z = -side.z;
         sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
-        returningFromEdge = true;
         Chat.log("[Batata] Percurso invertido: continuara pelas fileiras do outro lado.");
         return true;
     }
@@ -415,7 +438,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Batata] Zigue-zague v9: zigue-zague de ida e volta pelo percurso inteiro, sem descer. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Batata] Zigue-zague v10: retorno de saida uma vez, depois zigue-zague pelo patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
