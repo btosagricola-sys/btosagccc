@@ -8,7 +8,7 @@
     const SIDE = 1; // 1 = proxima fileira a direita inicial; -1 = a esquerda.
     const DETOUR_RADIUS = 8; // Limite do desvio local, em blocos.
     const SCAN = 6; // Tolera pequenos espacos sem plantas.
-    const keys = ["key.forward", "key.sprint", "key.attack", "key.sneak", "key.jump"];
+    const keys = ["key.forward", "key.back", "key.sprint", "key.attack", "key.sneak", "key.jump"];
     const current = GlobalVars.getString(RUN);
     if (current) { GlobalVars.putString(STOP, current); return; }
     const first = Player.getPlayer();
@@ -22,16 +22,19 @@
         return { x: Math.round(-Math.sin(r)), z: Math.round(Math.cos(r)) };
     }
     let forward = direction(yaw);
+    const fieldAxis = { x: forward.x, z: forward.z };
+    let fieldMin = null, fieldMax = null;
     // Mantem sempre o mesmo lado global, mesmo depois de inverter o percurso.
     const side = { x: -forward.z * SIDE, z: forward.x * SIDE };
     const sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
     let phase = "row", destination = null, end = null;
     let route = [], routeIndex = 0, reverseAfterRoute = false;
     let blockedTicks = 0, blockedKey = "";
+    let retreat = null, retreatCount = 0, lastRetreat = null;
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
     const farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
     let lastSafe = null, climb = null;
-    let sale = null, saleCooldown = 0;
+    let sale = null, saleCooldown = 0, hudReader = null;
     const listeners = [];
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
@@ -73,6 +76,28 @@
             if (/quantidade\s*:\s*0(?:[.,]0+)?\s+batatas?\b/.test(plain(line.getString()))) return true;
         }
         return false;
+    }
+
+    function prepareHudReader() {
+        const mc = Client.getMinecraft();
+        function field(object, intermediary, named) {
+            const f = Reflection.getDeclaredField(object.getClass(), intermediary, named);
+            f.setAccessible(true); return f;
+        }
+        const hudField = field(mc, "field_1705", "inGameHud");
+        const hud = hudField.get(mc);
+        const title = field(hud, "field_2016", "title"), titleTime = field(hud, "field_2023", "titleRemainTicks");
+        const overlay = field(hud, "field_2018", "overlayMessage"), overlayTime = field(hud, "field_2041", "overlayRemaining");
+        const textHelper = Java.type("xyz.wagyourtail.jsmacros.client.api.helpers.TextHelper");
+        return function () {
+            const currentHud = hudField.get(mc);
+            for (const pair of [[title, titleTime], [overlay, overlayTime]]) {
+                if (pair[1].getInt(currentHud) > 0) {
+                    const value = pair[0].get(currentHud);
+                    if (value !== null) receive(textHelper.wrap(value));
+                }
+            }
+        };
     }
 
     function potato(x, y, z) {
@@ -133,10 +158,10 @@
         }
         return null;
     }
-    function recover(p) {
+    function findRoute(p, preferNextRow) {
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ()), cy = farmLevel;
         // Primeiro tenta retornar a mesma fileira depois do obstaculo.
-        for (let d = 2; d <= DETOUR_RADIUS; d++) {
+        for (let d = preferNextRow ? DETOUR_RADIUS + 1 : 2; d <= DETOUR_RADIUS; d++) {
             const gx = bx + forward.x * d, gz = bz + forward.z * d;
             if (!crop(gx, cy, gz)) continue;
             const path = pathTo(bx, bz, gx, gz, cy);
@@ -166,12 +191,35 @@
         }
         return false;
     }
-    function setKeys(walk, sprint, careful) {
+    function startRetreat(p) {
+        if (retreatCount >= 3) return false;
+        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+        let steps = 0;
+        for (let d = 1; d <= 2; d++) {
+            if (!walkable(bx - forward.x * d, farmLevel, bz - forward.z * d)) break;
+            steps = d;
+        }
+        if (steps === 0) return false;
+        const tx = bx + 0.5 - forward.x * steps, tz = bz + 0.5 - forward.z * steps;
+        retreat = { x: tx, z: tz, ticks: 0 };
+        lastRetreat = { x: p.getX(), z: p.getZ() };
+        retreatCount++;
+        phase = "retreat";
+        resetBlocked(); idle = 0;
+        checkpoint = { x: p.getX(), z: p.getZ() };
+        Chat.log("[Batata] Sem passagem: recuando " + steps + " bloco(s) para tentar novamente.");
+        return true;
+    }
+    function recover(p) {
+        return findRoute(p, false) || startRetreat(p);
+    }
+    function setKeys(walk, sprint) {
         const hit = Player.rayTraceBlock(4.5, false);
         KeyBind.keyBind("key.attack", hit !== null && hit.getId() === "minecraft:potatoes");
         KeyBind.keyBind("key.forward", walk);
+        KeyBind.keyBind("key.back", false);
         KeyBind.keyBind("key.sprint", sprint);
-        KeyBind.keyBind("key.sneak", !!careful);
+        KeyBind.keyBind("key.sneak", false);
         KeyBind.keyBind("key.jump", false);
     }
     try {
@@ -179,10 +227,16 @@
         GlobalVars.putString(SALE_STATE, "idle");
         listeners.push(JsMacros.on("Title", JavaWrapper.methodToJava(e => receive(e.message))));
         listeners.push(JsMacros.on("RecvMessage", JavaWrapper.methodToJava(e => receive(e.text))));
-        Chat.log("[Batata] Zigue-zague ativo: W + Ctrl. Aperte a mesma tecla para parar.");
+        try { hudReader = prepareHudReader(); }
+        catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel; monitorando eventos de texto."); }
+        Chat.log("[Batata] Zigue-zague v2: sem agachar, com recuo e venda automatica. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             const p = Player.getPlayer();
             if (!p) { reason = "desconectou"; break; }
+            if (hudReader !== null) {
+                try { hudReader(); }
+                catch (error) { hudReader = null; Chat.log("[Batata] Leitura direta do HUD falhou; eventos continuam ativos."); }
+            }
             if (saleCooldown > 0 && --saleCooldown === 0) GlobalVars.putString(SALE_STATE, "idle");
             if (sale === null && GlobalVars.getString(SALE_REQUEST) === id) {
                 releaseKeys();
@@ -263,13 +317,52 @@
                     reason = "nao conseguiu subir apos quatro tentativas de pulo"; break;
                 } else {
                     p.lookAt(Math.atan2(-(climb.target.x - x), climb.target.z - z) * 180 / Math.PI, PITCH);
-                    setKeys(distance > 0.18, false, false);
+                    setKeys(distance > 0.18, false);
                     // Pulsos de pulo, liberando entre tentativas. Nao segura Shift.
                     KeyBind.keyBind("key.jump", climb.ticks % 20 < 6);
                     climb.ticks++;
                 }
                 Client.waitTick();
                 continue;
+            }
+            if (phase === "retreat") {
+                setKeys(false, false);
+                const remaining = (x - retreat.x) * forward.x + (z - retreat.z) * forward.z;
+                if (remaining <= 0.12) {
+                    retreat = null;
+                    // Depois de afastar da parede, prioriza a fileira ao lado.
+                    if (!findRoute(p, true) && !findRoute(p, false) && !startRetreat(p)) {
+                        reason = "sem passagem apos tres recuos"; break;
+                    }
+                    idle = 0; checkpoint = { x: x, z: z };
+                } else if (++retreat.ticks > 60) {
+                    reason = "recuo bloqueado; caminho atras indisponivel"; break;
+                } else {
+                    const behindX = Math.floor(x - forward.x * 0.5);
+                    const behindZ = Math.floor(z - forward.z * 0.5);
+                    if (!walkable(behindX, farmLevel, behindZ)) {
+                        reason = "recuo interrompido por bloco ou falta de chao atras"; break;
+                    }
+                    p.lookAt(yaw, PITCH);
+                    KeyBind.keyBind("key.attack", false);
+                    KeyBind.keyBind("key.back", true);
+                }
+                Client.waitTick();
+                continue;
+            }
+            if (phase === "row" && lastRetreat !== null && Math.hypot(x - lastRetreat.x, z - lastRetreat.z) >= 4) {
+                retreatCount = 0; lastRetreat = null;
+            }
+            if (phase === "row" && fieldMin === null) {
+                // Registra o inicio da fileira antes de um eventual recuo/desvio.
+                for (let d = -SCAN; d <= SCAN; d++) {
+                    const cx = bx + fieldAxis.x * d, cz = bz + fieldAxis.z * d;
+                    if (crop(cx, farmLevel, cz)) {
+                        const absolute = (cx + 0.5) * fieldAxis.x + (cz + 0.5) * fieldAxis.z;
+                        fieldMin = fieldMin === null ? absolute : Math.min(fieldMin, absolute);
+                        fieldMax = fieldMax === null ? absolute : Math.max(fieldMax, absolute);
+                    }
+                }
             }
             // Usa o nivel da plantacao, nao o Y arredondado a cada oscilacao dos pes.
             if (phase === "row") {
@@ -288,10 +381,12 @@
                     const cx = bx + forward.x * d, cz = bz + forward.z * d;
                     if (crop(cx, y, cz)) {
                         found = true;
-                        const progress = (cx + 0.5) * forward.x + (cz + 0.5) * forward.z;
-                        end = end === null ? progress : Math.max(end, progress);
+                        const absolute = (cx + 0.5) * fieldAxis.x + (cz + 0.5) * fieldAxis.z;
+                        fieldMin = fieldMin === null ? absolute : Math.min(fieldMin, absolute);
+                        fieldMax = fieldMax === null ? absolute : Math.max(fieldMax, absolute);
                     }
                 }
+                if (fieldMin !== null) end = forward.x * fieldAxis.x + forward.z * fieldAxis.z > 0 ? fieldMax : -fieldMin;
                 missing = found ? 0 : missing + 1;
                 const progress = x * forward.x + z * forward.z;
                 // Nao vira cedo apenas porque o ataque ja quebrou as plantas na mira.
@@ -325,9 +420,9 @@
                 } else {
                     resetBlocked();
                     p.lookAt(Math.atan2(-(point.x - x), point.z - z) * 180 / Math.PI, PITCH);
-                    setKeys(true, false, true);
+                    setKeys(true, false);
                 }
-            } else {
+            } else if (phase === "shift") {
                 const remaining = (destination.x - x) * side.x + (destination.z - z) * side.z;
                 if (remaining <= 0.12) {
                     yaw += 180; forward = direction(yaw);
@@ -340,7 +435,7 @@
             }
             const moved = Math.hypot(x - checkpoint.x, z - checkpoint.z);
             if (moved >= 0.08) { checkpoint = { x: x, z: z }; idle = 0; }
-            else if (++idle >= 20 && phase !== "route") {
+            else if (++idle >= 20 && phase !== "route" && phase !== "retreat") {
                 setKeys(false, false);
                 if (!recover(p)) { reason = "sem passagem local para desviar ou voltar"; break; }
                 idle = 0; checkpoint = { x: x, z: z };

@@ -88,7 +88,7 @@ para `minecraft:potatoes`.
 Ao encontrar um bloco à frente, procura um caminho curto, com espaço para os pés
 e a cabeça e chão de apoio, para retornar à fileira após o obstáculo. Na parede
 ou no fim, tenta alcançar outra fileira no lado escolhido e inverter a direção.
-Durante o contorno usa movimento lento, sem salto, para reduzir colisões. A
+Durante o contorno anda sem correr e sem agachar. A
 busca local é limitada a 8 blocos; procura até 6 fileiras laterais. Não é um
 navegador para terrenos arbitrários, escadas ou grandes labirintos.
 
@@ -166,3 +166,32 @@ A sintaxe e 23 testes simulados passaram, incluindo as novas regressões de
 oscilação de altura com e sem obstáculo real. Essa correção trata uma condição
 reproduzida nos testes; a causa exata da parada no servidor ainda precisa ser
 confirmada no jogo. Se acontecer novamente, envie a mensagem completa com IDs.
+
+
+## Zigue-zague v2: recuo, sem agachar e leitura direta do aviso
+
+Ao iniciar, a mensagem contém `Zigue-zague v2: sem agachar, com recuo e venda automatica`.
+Use essa mensagem para confirmar que substituiu o código antigo inteiro.
+
+O script nunca pressiona Shift/agachar. Se não encontra passagem, verifica o
+chão atrás e recua até 2 blocos usando a ação de andar para trás. Depois tenta
+outra fileira e, se necessário, tenta novamente contornar pela mesma fileira.
+Há no máximo três recuos consecutivos antes de parar; após voltar a andar pela
+fileira e se afastar do local, o limite é rearmado. A parada, menus e a venda
+também liberam a tecla de recuo. Ele não recua para uma posição sem apoio.
+
+A leitura de `Armazém cheio` agora inclui o texto atual do título e da actionbar,
+mesmo se o evento correspondente não chegar. Os nomes de campos Yarn/intermediary
+foram conferidos nas mappings oficiais do Minecraft 1.21.4. Se essa leitura não
+estiver disponível na instalação, o chat avisa e os listeners continuam ativos.
+O envio continua sendo `/farms`, conforme solicitado. A mensagem local
+`Armazem cheio: abrindo /farms para vender` indica que a detecção ocorreu.
+
+A navegação mantém os limites longitudinais já observados da plantação, para
+não encurtar o retorno só porque o desvio já colheu plantas da próxima fileira.
+
+A sintaxe e 28 testes com APIs simuladas passaram. As novas verificações cobrem
+ausência de Shift, recuo com retomada, parada durante recuo e detecção direta de
+título/actionbar sem eventos. Ainda falta validar no jogo a leitura do HUD e o
+comando/menu do servidor. Esse resultado não confirma que o problema observado
+no servidor foi resolvido até executar a versão nova nele.
