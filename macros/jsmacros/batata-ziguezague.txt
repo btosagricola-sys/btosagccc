@@ -4,6 +4,8 @@
     const RUN = "btos.batata.zig.run", STOP = "btos.batata.zig.stop";
     const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
     const PITCH = 55;
+    const SELL_INTERVAL = 1200; // Venda de reserva a cada 60 s, mesmo sem ler o aviso.
+    const TURN_STEP = 10; // Graus por tick: viradas graduais.
     const ROW_WIDTH = 1; // Distancia entre fileiras em blocos.
     const SIDE = 1; // 1 = proxima fileira a direita inicial; -1 = a esquerda.
     const DETOUR_RADIUS = 8; // Limite do desvio local, em blocos.
@@ -32,25 +34,26 @@
     let blockedTicks = 0, blockedKey = "";
     let retreat = null, retreatCount = 0, lastRetreat = null;
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
-    const farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
-    let lastSafe = null, climb = null;
-    let sale = null, saleCooldown = 0, hudReader = null;
+    let farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
+    let lastSafe = null, climb = null, descent = null;
+    const recoveryVisits = new Map();
+    let sale = null, saleCooldown = 0, hudReader = null, sinceSale = 0;
     const listeners = [];
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
 
     function plain(text) {
         return String(text).replace(/§[0-9a-fk-or]/gi, "").normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+            .replace(/[\u0300-\u036f]/g, "").replace(/[\u200B-\u200D\uFEFF]/g, "").toLowerCase().trim();
     }
     function releaseKeys() {
         for (const key of keys) KeyBind.keyBind(key, false);
     }
     function receive(text) {
-        if (text === null || GlobalVars.getString(RUN) !== id) return;
+        if (text === null || text === undefined || GlobalVars.getString(RUN) !== id) return;
         const message = plain(text.getString());
         const state = GlobalVars.getString(SALE_STATE);
-        if (state === "idle" && /armazem\s+cheio/.test(message)) GlobalVars.putString(SALE_REQUEST, id);
+        if (state === "idle" && /(?:armazem|inventario|deposito)\s+(?:esta\s+)?cheio/.test(message)) GlobalVars.putString(SALE_REQUEST, id);
         if (state === "confirm" && /batatas?/.test(message)
                 && /vendid|vendeu|venda (?:realizada|efetuada|concluida)/.test(message)
                 && !/nao |erro|falh|insuficiente/.test(message)) GlobalVars.putString(SALE_ACK, id);
@@ -211,7 +214,29 @@
         return true;
     }
     function recover(p) {
+        const key = Math.floor(p.getX() / 3) + "," + Math.floor(p.getZ() / 3) + ":" + forward.x + "," + forward.z;
+        const visits = (recoveryVisits.get(key) || 0) + 1;
+        recoveryVisits.set(key, visits);
+        if (visits > 3) return false;
         return findRoute(p, false) || startRetreat(p);
+    }
+    function smoothLook(p, targetYaw, targetPitch) {
+        const currentYaw = p.getYaw(), currentPitch = p.getPitch();
+        let delta = ((targetYaw - currentYaw + 180) % 360 + 360) % 360 - 180;
+        if (delta === -180) delta = 180;
+        const dp = targetPitch - currentPitch;
+        const aligned = Math.abs(delta) <= TURN_STEP && Math.abs(dp) <= 5;
+        p.lookAt(currentYaw + Math.max(-TURN_STEP, Math.min(TURN_STEP, delta)),
+            currentPitch + Math.max(-5, Math.min(5, dp)));
+        if (!aligned) { idle = 0; checkpoint = { x: p.getX(), z: p.getZ() }; }
+        return aligned;
+    }
+    function canDescend(cx, cz) {
+        if (!walkable(cx, farmLevel - 1, cz)) return false;
+        for (let d = 0; d <= SCAN; d++) {
+            if (crop(cx + forward.x * d, farmLevel - 1, cz + forward.z * d)) return true;
+        }
+        return false;
     }
     function setKeys(walk, sprint) {
         const hit = Player.rayTraceBlock(4.5, false);
@@ -228,8 +253,8 @@
         listeners.push(JsMacros.on("Title", JavaWrapper.methodToJava(e => receive(e.message))));
         listeners.push(JsMacros.on("RecvMessage", JavaWrapper.methodToJava(e => receive(e.text))));
         try { hudReader = prepareHudReader(); }
-        catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel; monitorando eventos de texto."); }
-        Chat.log("[Batata] Zigue-zague v2: sem agachar, com recuo e venda automatica. W + Ctrl. Aperte a mesma tecla para parar.");
+        catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; venda periodica ativa."); }
+        Chat.log("[Batata] Zigue-zague v3: venda a cada 60s, descida de degrau e viradas suaves. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             const p = Player.getPlayer();
             if (!p) { reason = "desconectou"; break; }
@@ -238,12 +263,17 @@
                 catch (error) { hudReader = null; Chat.log("[Batata] Leitura direta do HUD falhou; eventos continuam ativos."); }
             }
             if (saleCooldown > 0 && --saleCooldown === 0) GlobalVars.putString(SALE_STATE, "idle");
+            if (sale === null && ++sinceSale >= SELL_INTERVAL && saleCooldown === 0) {
+                GlobalVars.putString(SALE_REQUEST, id);
+                Chat.log("[Batata] Venda periodica de reserva: enviando /farms.");
+            }
             if (sale === null && GlobalVars.getString(SALE_REQUEST) === id) {
                 releaseKeys();
                 sale = { stage: "menu", ticks: 0, x: p.getX(), y: p.getY(), z: p.getZ() };
                 GlobalVars.putString(SALE_REQUEST, ""); GlobalVars.putString(SALE_STATE, "menu");
                 Chat.log("[Batata] Armazem cheio: abrindo /farms para vender.");
-                Chat.say("/farms");
+                Chat.say("/farms", true);
+                Chat.log("[Batata] /farms enviado ao servidor.");
             }
             if (sale !== null) {
                 releaseKeys();
@@ -275,7 +305,7 @@
                     if (Math.hypot(p.getX() - sale.x, p.getZ() - sale.z) > 1.5 || Math.abs(p.getY() - sale.y) > 0.3) {
                         reason = "posicao mudou durante a venda; reinicie na fileira"; break;
                     }
-                    sale = null; saleCooldown = 100;
+                    sale = null; saleCooldown = 100; sinceSale = 0;
                     GlobalVars.putString(SALE_ACK, ""); GlobalVars.putString(SALE_STATE, "cooldown");
                     idle = 0; checkpoint = { x: p.getX(), z: p.getZ() };
                     Chat.log("[Batata] Venda confirmada; continuando a colheita.");
@@ -290,14 +320,36 @@
             if (phase !== "climb" && Math.abs(py - farmY) <= 0.15 && walkable(bx, farmLevel, bz)) {
                 lastSafe = { x: bx + 0.5, z: bz + 0.5 };
             }
-            if (phase !== "climb" && py < farmY - 0.6) {
+            if (phase !== "climb" && phase !== "descend" && py < farmY - 0.6) {
                 if (py < farmY - 1.3 || lastSafe === null
                         || Math.hypot(lastSafe.x - x, lastSafe.z - z) > 3) {
                     reason = "queda sem retorno de um bloco ao alcance"; break;
                 }
-                climb = { target: lastSafe, resume: phase, ticks: 0, stable: 0, previousY: py };
+                climb = { target: lastSafe, resume: phase, ticks: 0, turnTicks: 0, stable: 0, previousY: py };
                 phase = "climb";
                 Chat.log("[Batata] Caiu um degrau: tentando pular de volta para a plantacao.");
+            }
+            if (phase === "descend") {
+                const landed = Math.abs(py - (descent.oldY - 1)) <= 0.15
+                    && Math.abs(py - descent.previousY) < 0.02 && walkable(bx, descent.level, bz);
+                descent.stable = landed ? descent.stable + 1 : 0;
+                descent.previousY = py;
+                if (descent.stable >= 2) {
+                    farmY = py; farmLevel = descent.level;
+                    descent = null; phase = "row"; end = null; missing = 0;
+                    lastSafe = { x: bx + 0.5, z: bz + 0.5 };
+                    resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
+                    setKeys(false, false);
+                    Chat.log("[Batata] Desceu um bloco; continuando a colheita embaixo.");
+                } else if (++descent.ticks > 80 || py < descent.oldY - 1.3) {
+                    reason = "nao conseguiu descer o degrau de um bloco"; break;
+                } else {
+                    const aligned = smoothLook(p, yaw, PITCH);
+                    const distance = Math.hypot(descent.x - x, descent.z - z);
+                    setKeys(aligned && distance > 0.15, false);
+                }
+                Client.waitTick();
+                continue;
             }
             if (phase === "climb") {
                 if (py < farmY - 1.3 || !walkable(Math.floor(climb.target.x), farmLevel, Math.floor(climb.target.z))) {
@@ -316,11 +368,12 @@
                 } else if (climb.ticks >= 80) {
                     reason = "nao conseguiu subir apos quatro tentativas de pulo"; break;
                 } else {
-                    p.lookAt(Math.atan2(-(climb.target.x - x), climb.target.z - z) * 180 / Math.PI, PITCH);
-                    setKeys(distance > 0.18, false);
+                    const aligned = smoothLook(p, Math.atan2(-(climb.target.x - x), climb.target.z - z) * 180 / Math.PI, PITCH);
+                    setKeys(aligned && distance > 0.18, false);
                     // Pulsos de pulo, liberando entre tentativas. Nao segura Shift.
-                    KeyBind.keyBind("key.jump", climb.ticks % 20 < 6);
-                    climb.ticks++;
+                    KeyBind.keyBind("key.jump", aligned && climb.ticks % 20 < 6);
+                    if (aligned) climb.ticks++;
+                    else if (++climb.turnTicks > 40) { reason = "nao conseguiu alinhar para subir"; break; }
                 }
                 Client.waitTick();
                 continue;
@@ -343,9 +396,9 @@
                     if (!walkable(behindX, farmLevel, behindZ)) {
                         reason = "recuo interrompido por bloco ou falta de chao atras"; break;
                     }
-                    p.lookAt(yaw, PITCH);
+                    const aligned = smoothLook(p, yaw, PITCH);
                     KeyBind.keyBind("key.attack", false);
-                    KeyBind.keyBind("key.back", true);
+                    KeyBind.keyBind("key.back", aligned);
                 }
                 Client.waitTick();
                 continue;
@@ -369,13 +422,19 @@
                 const ax = bx + forward.x, az = bz + forward.z;
                 if (!walkable(ax, farmLevel, az)) {
                     setKeys(false, false);
+                    if (canDescend(ax, az)) {
+                        descent = { x: ax + 0.5, z: az + 0.5, oldY: farmY, level: farmLevel - 1, ticks: 0, stable: 0, previousY: py };
+                        phase = "descend";
+                        Chat.log("[Batata] Degrau com batatas abaixo: descendo sem recuar.");
+                        Client.waitTick(); continue;
+                    }
                     if (blockedFor(ax, az) < 3) { Client.waitTick(); continue; }
                     if (!recover(p)) { reason = "sem passagem local: " + describeBlock(ax, az); break; }
                     resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
                 } else resetBlocked();
             }
             if (phase === "row") {
-                p.lookAt(yaw, PITCH);
+                const facingRow = smoothLook(p, yaw, PITCH);
                 let found = false;
                 for (let d = 0; d <= SCAN; d++) {
                     const cx = bx + forward.x * d, cz = bz + forward.z * d;
@@ -401,7 +460,7 @@
                     phase = "shift";
                     idle = 0; checkpoint = { x: x, z: z };
                     setKeys(false, false);
-                } else setKeys(true, true);
+                } else setKeys(facingRow, facingRow);
             } else if (phase === "route") {
                 const point = route[routeIndex];
                 if (Math.hypot(point.x - x, point.z - z) <= 0.12) {
@@ -419,8 +478,8 @@
                     resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
                 } else {
                     resetBlocked();
-                    p.lookAt(Math.atan2(-(point.x - x), point.z - z) * 180 / Math.PI, PITCH);
-                    setKeys(true, false);
+                    const aligned = smoothLook(p, Math.atan2(-(point.x - x), point.z - z) * 180 / Math.PI, PITCH);
+                    setKeys(aligned, false);
                 }
             } else if (phase === "shift") {
                 const remaining = (destination.x - x) * side.x + (destination.z - z) * side.z;
@@ -429,8 +488,8 @@
                     phase = "row"; end = null; missing = 0;
                     setKeys(false, false);
                 } else {
-                    p.lookAt(sideYaw, PITCH);
-                    setKeys(true, false);
+                    const aligned = smoothLook(p, sideYaw, PITCH);
+                    setKeys(aligned, false);
                 }
             }
             const moved = Math.hypot(x - checkpoint.x, z - checkpoint.z);

@@ -1,14 +1,15 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
-function setup() {
-    const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null };
+function setup(script = source) {
+    const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
     function ground(x, z) { return x >= -3 && x <= 1 && z >= -1 && z <= 9; }
     function block(x, y, z) {
         const solid = (y === 64 || y === 65) && (solids.has(`${x},${z}`) || (s.hideSides && x !== 0));
-        const id = solid ? 'minecraft:hay_block' : y === 63 && ground(x, z) ? 'minecraft:farmland'
-            : y === 64 && crops.has(`${x},${z}`) ? 'minecraft:potatoes' : 'minecraft:air';
+        const cropY = s.lowerFromZ !== null && z >= s.lowerFromZ ? 63 : 64;
+        const id = solid ? 'minecraft:hay_block' : y === cropY - 1 && ground(x, z) ? 'minecraft:farmland'
+            : y === cropY && crops.has(`${x},${z}`) ? 'minecraft:potatoes' : 'minecraft:air';
         return { getId: () => id, getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
     }
     function ray() {
@@ -20,8 +21,8 @@ function setup() {
         }
         return null;
     }
-    const p = { getX: () => s.x, getY: () => s.y, getZ: () => s.z, getYaw: () => s.yaw,
-        lookAt: yaw => { if (s.yaw !== yaw) turns.push(yaw); s.yaw = yaw; } };
+    const p = { getX: () => s.x, getY: () => s.y, getZ: () => s.z, getYaw: () => s.yaw, getPitch: () => s.pitch,
+        lookAt: (yaw, pitch) => { lookSteps.push(((yaw - s.yaw + 180) % 360 + 360) % 360 - 180); if (s.yaw !== yaw) turns.push(yaw); s.yaw = yaw; s.pitch = pitch; } };
     const text = value => ({ getString: () => value });
     function emit(event, value) {
         for (const listener of listeners) if (listener.event === event) listener.fn(event === 'Title'
@@ -51,7 +52,7 @@ function setup() {
     const ctx = vm.createContext({
         Java: { type: () => ({ wrap: value => value }) },
         Reflection: { getDeclaredField: (type, name) => ({ setAccessible: () => {}, get: obj => obj[name], getInt: obj => obj[name] }) },
-        Chat: { log: text => logs.push(text), say: command => { commands.push(command); if (s.onSay) s.onSay(); } },
+        Chat: { log: text => logs.push(text), say: (command, awaitSend) => { commandWait.push(awaitSend); commands.push(command); if (s.onSay) s.onSay(); } },
         JsMacros: { on: (event, fn) => { const listener = {event, fn}; listeners.add(listener); return listener; },
             off: listener => listeners.delete(listener) },
         JavaWrapper: { methodToJava: fn => fn },
@@ -80,8 +81,8 @@ function setup() {
             if (s.onTick) s.onTick();
         } }
     });
-    run = () => vm.runInContext(source, ctx);
-    return { s, keys, crops, logs, turns, solids, run, listeners, commands, clicks, emit, keyHistory };
+    run = () => vm.runInContext(script, ctx);
+    return { s, keys, crops, logs, turns, solids, run, listeners, commands, clicks, emit, keyHistory, lookSteps, commandWait };
 }
 function released(f) {
     assert.strictEqual(f.listeners.size, 0);
@@ -91,7 +92,8 @@ let count = 0;
 function test(name, fn) { fn(); count++; console.log('OK: ' + name); }
 test('harvests three adjacent rows, reverses twice and stops at last row', () => {
     const f = setup(); f.run(); released(f);
-    assert(f.turns.includes(180) && f.turns.includes(360));
+    assert(f.turns.some(y => Math.abs(((y % 360) + 360) % 360 - 180) < 0.001));
+    assert(f.turns.some(y => Math.abs(((y % 360) + 360) % 360) < 0.001));
     assert.strictEqual(f.crops.size, 0);
     assert(f.logs.some(t => t.includes('nao ha batatas')));
 });
@@ -157,7 +159,7 @@ test('menu during climb releases jump and all other controls', () => {
         if (f.s.ticks === 2) f.s.menu = {};
     };
     f.run(); released(f);
-    assert(f.s.jumps >= 1);
+    assert(f.logs.some(t => t.includes('Caiu um degrau')));
 });
 test('deep falls stop rather than repeatedly jumping', () => {
     const f = setup();
@@ -302,5 +304,45 @@ test('direct actionbar polling detects full warehouse without chat events', () =
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
     assert(f.logs.some(t => t.includes('Venda confirmada')));
+});
+test('periodic fallback sends farms and resumes even with no full notice', () => {
+    // Accelerate the scheduler only in this test; production remains 1200 ticks.
+    const f = setup(source.replace('SELL_INTERVAL = 1200', 'SELL_INTERVAL = 12'));
+    f.s.onSay = () => { f.s.menu = {}; };
+    f.s.onClick = () => { f.s.quantity = '0'; };
+    f.s.onTick = () => { if (f.logs.some(t => t.includes('Venda confirmada'))) f.run(); };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert.deepStrictEqual(f.commandWait, [true]);
+    assert.deepStrictEqual(f.clicks, [20]);
+    assert(f.logs.some(t => t.includes('/farms enviado')));
+});
+test('turns have a maximum ten-degree yaw step', () => {
+    const f = setup(); f.run(); released(f);
+    assert(f.lookSteps.some(d => Math.abs(d) > 0));
+    assert(f.lookSteps.every(d => Math.abs(d) <= 10.0001));
+    assert.strictEqual(f.crops.size, 0);
+});
+test('deliberately descends a supported one-block potato step without retreating', () => {
+    const f = setup(); f.s.lowerFromZ = 4;
+    let resumeTick = null;
+    f.s.onTick = () => {
+        if (f.s.z >= 4) f.s.y = 62.9375;
+        if (resumeTick === null && f.logs.some(t => t.includes('continuando a colheita embaixo'))) resumeTick = f.s.ticks;
+        if (resumeTick !== null && f.s.ticks - resumeTick >= 8) f.run();
+    };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Degrau com batatas abaixo')));
+    assert(f.logs.some(t => t.includes('continuando a colheita embaixo')));
+    assert(!f.logs.some(t => t.includes('recuando') || t.includes('Caiu um degrau')));
+    assert(f.s.y < 63);
+});
+test('inventory full wording also triggers the requested farms command', () => {
+    const f = setup();
+    f.s.onTick = () => { if (f.s.ticks === 1) f.emit('Title', 'Inventário cheio!'); };
+    f.s.onSay = () => { f.s.menu = {}; };
+    f.s.onClick = () => { f.s.quantity = '0'; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

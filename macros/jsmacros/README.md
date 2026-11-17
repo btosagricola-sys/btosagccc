@@ -195,3 +195,35 @@ ausência de Shift, recuo com retomada, parada durante recuo e detecção direta
 título/actionbar sem eventos. Ainda falta validar no jogo a leitura do HUD e o
 comando/menu do servidor. Esse resultado não confirma que o problema observado
 no servidor foi resolvido até executar a versão nova nele.
+
+## Zigue-zague v3: venda de reserva, descida e viradas graduais
+
+A mensagem inicial agora contém `Zigue-zague v3`. Substitua o arquivo inteiro e
+confirme essa versão no chat para não continuar executando uma cópia antiga.
+
+Além de `Armazém cheio`, os avisos `Inventário cheio` e `Depósito cheio` podem
+acionar a venda. O comando `/farms` é enviado usando `Chat.say(..., true)`,
+aguardando o envio ao servidor, e é registrado no chat local. Isso não comprova
+que o servidor aceitou o comando. Se não houver aviso detectado, a versão v3
+faz uma venda de reserva a cada 1200 ticks ativos (cerca de 60 segundos), mesmo
+que o depósito ainda não esteja cheio. O intervalo reinicia após a venda.
+O menu e a confirmação continuam sendo obrigatórios para retomar a colheita.
+Se o HUD não puder ser lido, a mensagem inclui o erro, e a venda periódica
+continua disponível.
+
+Em uma beirada, se existir chão de apoio e batatas um bloco abaixo, a macro
+avança devagar para descer, espera estabilizar e atualiza o nível de navegação.
+Essa descida planejada não dispara a recuperação por pulo. Quedas acidentais
+continuam usando a tentativa de subir. Degraus maiores e buracos sem apoio
+não são considerados passagem. Novas recuperações na mesma região/direção são
+limitadas para evitar ciclos intermináveis de recuo e avanço.
+
+As viradas usam o caminho angular mais curto, com até 10 graus de yaw e 5 graus
+de pitch por tick. A macro espera alinhar para andar; uma volta de 180 graus
+leva aproximadamente 0,9 segundo a 20 ticks/s. O limite é configurável em
+`TURN_STEP`. Não há promessa de imitar uma pessoa ou de evitar detecção.
+
+A sintaxe e 32 testes com APIs simuladas passaram. Os novos testes cobrem venda
+periódica sem eventos, envio aguardado, limite de rotação, descida planejada com
+retomada e aviso de inventário cheio. Os resultados ainda precisam ser
+confirmados na instalação e no servidor do usuário.
