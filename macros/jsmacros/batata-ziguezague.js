@@ -33,8 +33,8 @@
     let blockedTicks = 0, blockedKey = "";
     let retreat = null, retreatCount = 0, lastRetreat = null;
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
-    let farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
-    let lastSafe = null, climb = null, descent = null;
+    const farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
+    let lastSafe = null, climb = null;
     const recoveryVisits = new Map();
     let sale = null, saleCooldown = 0, hudReader = null;
     let lastHudNotice = "";
@@ -125,7 +125,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Batata] Leitor HUD v5 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Batata] Leitor HUD v6 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -273,12 +273,12 @@
         Chat.log("[Batata] Sem passagem: recuando " + steps + " bloco(s) para tentar novamente.");
         return true;
     }
-    function recover(p) {
+    function recover(p, nextRowOnly) {
         const key = Math.floor(p.getX() / 3) + "," + Math.floor(p.getZ() / 3) + ":" + forward.x + "," + forward.z;
         const visits = (recoveryVisits.get(key) || 0) + 1;
         recoveryVisits.set(key, visits);
         if (visits > 3) return false;
-        return findRoute(p, false) || startRetreat(p);
+        return findRoute(p, !!nextRowOnly) || startRetreat(p);
     }
     function smoothLook(p, targetYaw, targetPitch) {
         const currentYaw = p.getYaw(), currentPitch = p.getPitch();
@@ -291,16 +291,9 @@
         if (!aligned) { idle = 0; checkpoint = { x: p.getX(), z: p.getZ() }; }
         return aligned;
     }
-    function canDescend(cx, cz) {
-        if (!walkable(cx, farmLevel - 1, cz)) return false;
-        for (let d = 0; d <= SCAN; d++) {
-            if (crop(cx + forward.x * d, farmLevel - 1, cz + forward.z * d)) return true;
-        }
-        return false;
-    }
     function setKeys(walk, sprint) {
         const hit = Player.rayTraceBlock(4.5, false);
-        KeyBind.keyBind("key.attack", hit !== null && hit.getId() === "minecraft:potatoes");
+        KeyBind.keyBind("key.attack", phase === "row" && walk && hit !== null && hit.getId() === "minecraft:potatoes" && hit.getY() === farmLevel);
         KeyBind.keyBind("key.forward", walk);
         KeyBind.keyBind("key.back", false);
         KeyBind.keyBind("key.sprint", sprint);
@@ -314,7 +307,7 @@
         listeners.push(JsMacros.on("RecvMessage", JavaWrapper.methodToJava(e => receive(e.text))));
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
-        Chat.log("[Batata] Zigue-zague v5: vende so cheio, fecha menu, desvia de lado e vira direto. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Batata] Zigue-zague v6: permanece em cima e volta pela proxima fileira nas beiradas. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             const p = Player.getPlayer();
             if (!p) { reason = "desconectou"; break; }
@@ -385,7 +378,7 @@
             if (phase !== "climb" && Math.abs(py - farmY) <= 0.15 && walkable(bx, farmLevel, bz)) {
                 lastSafe = { x: bx + 0.5, z: bz + 0.5 };
             }
-            if (phase !== "climb" && phase !== "descend" && py < farmY - 0.6) {
+            if (phase !== "climb" && py < farmY - 0.6) {
                 if (py < farmY - 1.3 || lastSafe === null
                         || Math.hypot(lastSafe.x - x, lastSafe.z - z) > 3) {
                     reason = "queda sem retorno de um bloco ao alcance"; break;
@@ -393,28 +386,6 @@
                 climb = { target: lastSafe, resume: phase, ticks: 0, turnTicks: 0, stable: 0, previousY: py };
                 phase = "climb";
                 Chat.log("[Batata] Caiu um degrau: tentando pular de volta para a plantacao.");
-            }
-            if (phase === "descend") {
-                const landed = Math.abs(py - (descent.oldY - 1)) <= 0.15
-                    && Math.abs(py - descent.previousY) < 0.02 && walkable(bx, descent.level, bz);
-                descent.stable = landed ? descent.stable + 1 : 0;
-                descent.previousY = py;
-                if (descent.stable >= 2) {
-                    farmY = py; farmLevel = descent.level;
-                    descent = null; phase = "row"; end = null; missing = 0;
-                    lastSafe = { x: bx + 0.5, z: bz + 0.5 };
-                    resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
-                    setKeys(false, false);
-                    Chat.log("[Batata] Desceu um bloco; continuando a colheita embaixo.");
-                } else if (++descent.ticks > 80 || py < descent.oldY - 1.3) {
-                    reason = "nao conseguiu descer o degrau de um bloco"; break;
-                } else {
-                    const aligned = smoothLook(p, yaw, PITCH);
-                    const distance = Math.hypot(descent.x - x, descent.z - z);
-                    setKeys(aligned && distance > 0.15, false);
-                }
-                Client.waitTick();
-                continue;
             }
             if (phase === "climb") {
                 if (py < farmY - 1.3 || !walkable(Math.floor(climb.target.x), farmLevel, Math.floor(climb.target.z))) {
@@ -487,14 +458,14 @@
                 const ax = bx + forward.x, az = bz + forward.z;
                 if (!walkable(ax, farmLevel, az)) {
                     setKeys(false, false);
-                    if (canDescend(ax, az)) {
-                        descent = { x: ax + 0.5, z: az + 0.5, oldY: farmY, level: farmLevel - 1, ticks: 0, stable: 0, previousY: py };
-                        phase = "descend";
-                        Chat.log("[Batata] Degrau com batatas abaixo: descendo sem recuar.");
-                        Client.waitTick(); continue;
-                    }
                     if (blockedFor(ax, az) < 3) { Client.waitTick(); continue; }
-                    if (!recover(p)) { reason = "sem passagem local: " + describeBlock(ax, az); break; }
+                    let cropsBeyond = false;
+                    for (let d = 1; d <= SCAN; d++) {
+                        if (crop(ax + forward.x * d, farmLevel, az + forward.z * d)) cropsBeyond = true;
+                    }
+                    // Sem batatas no mesmo nivel depois do bloqueio: parede ou beirada.
+                    // Prioriza a proxima fileira em vez de limpar os cantos.
+                    if (!recover(p, !cropsBeyond)) { reason = "sem passagem no nivel superior: " + describeBlock(ax, az); break; }
                     resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
                 } else resetBlocked();
             }
@@ -503,7 +474,7 @@
                 let found = false;
                 for (let d = 0; d <= SCAN; d++) {
                     const cx = bx + forward.x * d, cz = bz + forward.z * d;
-                    if (crop(cx, y, cz)) {
+                    if (crop(cx, farmLevel, cz)) {
                         found = true;
                         const absolute = (cx + 0.5) * fieldAxis.x + (cz + 0.5) * fieldAxis.z;
                         fieldMin = fieldMin === null ? absolute : Math.min(fieldMin, absolute);
@@ -515,16 +486,9 @@
                 const progress = x * forward.x + z * forward.z;
                 // Nao vira cedo apenas porque o ataque ja quebrou as plantas na mira.
                 if (missing >= 4 && (end === null || progress >= end - 0.15)) {
-                    const tx = bx + side.x * ROW_WIDTH, tz = bz + side.z * ROW_WIDTH;
-                    let nextRow = false;
-                    for (let d = 0; d <= SCAN; d++) {
-                        if (crop(tx - forward.x * d, y, tz - forward.z * d)) nextRow = true;
-                    }
-                    if (!nextRow) { reason = "nao ha batatas na proxima fileira"; break; }
-                    destination = { x: tx + 0.5, z: tz + 0.5 };
-                    phase = "shift";
-                    idle = 0; checkpoint = { x: x, z: z };
                     setKeys(false, false);
+                    if (!findRoute(p, true)) { reason = "nao ha batatas na proxima fileira no mesmo nivel"; break; }
+                    idle = 0; checkpoint = { x: x, z: z };
                 } else setKeys(facingRow, facingRow);
             } else if (phase === "route") {
                 const point = route[routeIndex];

@@ -2,10 +2,10 @@
 
 ## Instalação
 
-`batata-ziguezague.js` é o script atual (v5). `batata-ziguezague.txt` contém o
+`batata-ziguezague.js` é o script atual (v6). `batata-ziguezague.txt` contém o
 mesmo código, para copiar e colar no editor do JsMacros. Pare a cópia anterior
 e substitua todo o conteúdo. Vincule a uma tecla livre, como F6, no evento de
-pressionar a tecla. Ela inicia e para. Confirme `Zigue-zague v5` no chat.
+pressionar a tecla. Ela inicia e para. Confirme `Zigue-zague v6` no chat.
 São scripts JavaScript para JsMacros, não mods JAR. Ainda precisam ser validados
 na instalação 1.21.4 do usuário.
 
@@ -31,8 +31,8 @@ na parte bloqueada da fileira anterior. No fim/parede, busca uma fileira lateral
 e inverte o sentido. Sem passagem, tenta recuar até 2 blocos com apoio atrás,
 com limites de tentativas e de repetição por região. Não usa Shift/agachar.
 
-Desce um bloco quando há apoio e batatas no nível inferior, atualizando a
-altura da navegação. Quedas acidentais de um bloco continuam usando até quatro
+O nível inicial da plantação é fixo: a macro evita degraus para baixo, mesmo
+que existam batatas embaixo. Quedas acidentais de um bloco continuam usando até quatro
 tentativas de salto para voltar à última posição válida. Não tenta saltar
 buracos profundos. Sem chão, passagem ou recuperação possível, para e informa
 o motivo. Menus alheios, desconexão e a tecla de parada soltam todos os comandos.
@@ -68,7 +68,7 @@ node --check macros/jsmacros/batata-ziguezague.js
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
 
-A sintaxe e 39 testes com APIs simuladas passaram. Eles incluem colheita,
+A sintaxe e 40 testes com APIs simuladas passaram. Eles incluem colheita,
 desvio lateral, ausência de Shift, recuo, degrau, salto, parada e desconexão,
 HUD/chat, venda, fechamento com menu desatualizado, nenhuma venda por tempo,
 e medição do arco de virada em ambos os sentidos.
@@ -91,7 +91,7 @@ aviso de armazém cheio. Os listeners de texto continuam como alternativa.
 
 O chat agora mostra:
 
-- `Leitor HUD v5 ativo: ...` — canais que puderam ser abertos.
+- `Leitor HUD v6 ativo: ...` — canais que puderam ser abertos.
 - `Texto HUD lido: ...` — texto recebido, ao mudar, limitado a 220 caracteres.
 - `Aviso reconhecido: ...` — reconhecimento do armazém cheio.
 - `/farms enviado ao servidor` — envio do comando.
@@ -102,3 +102,25 @@ cliente do usuário neste ambiente; os testes simulados não estabelecem a causa
 exata do problema real. As quatro novas regressões cobrem RGB por caractere,
 ausência de campos de título, indisponibilidade de `Java.type`, texto já visível
 antes da ativação e descarte de título expirado. Total atual: 39 testes passaram.
+
+
+## v6: permanecer no nível superior e retornar na próxima fileira
+
+A descida planejada foi removida. Todos os caminhos e a próxima fileira exigem
+apoio no nível inicial. Se não há batatas do mesmo nível depois de um bloqueio,
+ele é tratado como parede/beirada: a macro procura primeiro a próxima fileira
+superior e inverte o sentido, em vez de avançar pela lateral limpando o canto.
+O fim normal da linha usa o mesmo caminho validado, sem um passo lateral sem
+verificação de chão.
+
+Durante troca de fileira, recuo, rota e giro sem movimento, o ataque fica solto.
+Só volta a colher na fase de fileira, depois de se alinhar e voltar a andar.
+Os obstáculos dentro da plantação, com batatas no mesmo nível à frente,
+continuam permitindo o desvio lateral. Se não houver retorno seguro, para ou
+usa o recuo limitado; não desce para procurar outro caminho.
+
+Os 40 testes simulados passaram. A regressão da antiga descida foi substituída
+por verificação de permanência no patamar: o corpo do jogador não cruza a
+beirada, as fileiras superiores são colhidas e as inferiores ficam intocadas.
+Um teste adicional verifica que não ataca enquanto passa de lado na parede.
+Ainda falta testar o movimento no servidor real.

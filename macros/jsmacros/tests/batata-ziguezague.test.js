@@ -17,7 +17,7 @@ function setup(script = source) {
         for (let i = 0; i <= 1; i++) {
             const x = Math.floor(s.x) + dx * i, z = Math.floor(s.z) + dz * i;
             if (solids.has(`${x},${z}`)) return { getId: () => 'minecraft:hay_block' };
-            if (crops.has(`${x},${z}`)) return { getId: () => 'minecraft:potatoes', pos: `${x},${z}` };
+            if (crops.has(`${x},${z}`)) return { getId: () => 'minecraft:potatoes', getY: () => s.lowerFromZ !== null && z >= s.lowerFromZ ? 63 : 64, pos: `${x},${z}` };
         }
         return null;
     }
@@ -327,19 +327,20 @@ test('turns have a maximum ten-degree yaw step', () => {
     assert(f.lookSteps.every(d => Math.abs(d) <= 10.0001));
     assert.strictEqual(f.crops.size, 0);
 });
-test('deliberately descends a supported one-block potato step without retreating', () => {
+test('avoids a one-block drop and returns harvesting on the next upper row', () => {
     const f = setup(); f.s.lowerFromZ = 4;
-    let resumeTick = null;
+    let largestZ = f.s.z;
     f.s.onTick = () => {
-        if (f.s.z >= 4) f.s.y = 62.9375;
-        if (resumeTick === null && f.logs.some(t => t.includes('continuando a colheita embaixo'))) resumeTick = f.s.ticks;
-        if (resumeTick !== null && f.s.ticks - resumeTick >= 8) f.run();
+        largestZ = Math.max(largestZ, f.s.z);
+        assert(f.s.z + 0.3 < 4, 'player footprint crosses the drop');
     };
     f.run(); released(f);
-    assert(f.logs.some(t => t.includes('Degrau com batatas abaixo')));
-    assert(f.logs.some(t => t.includes('continuando a colheita embaixo')));
-    assert(!f.logs.some(t => t.includes('recuando') || t.includes('Caiu um degrau')));
-    assert(f.s.y < 63);
+    assert(f.logs.some(t => t.includes('Parede/fim')));
+    assert(!f.logs.some(t => t.includes('descendo') || t.includes('Caiu um degrau')));
+    assert.strictEqual(f.s.y, 63.9375);
+    assert(largestZ < 4);
+    for (let x = -2; x <= 0; x++) for (let z = 0; z < 4; z++) assert(!f.crops.has(`${x},${z}`));
+    for (let x = -2; x <= 0; x++) for (let z = 4; z <= 7; z++) assert(f.crops.has(`${x},${z}`));
 });
 test('only warehouse full triggers selling, not unrelated inventory full', () => {
     const f = setup();
@@ -397,7 +398,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v5 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v6 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -411,5 +412,19 @@ test('expired title does not trigger selling', () => {
     const f = setup(); f.s.hudTitle = 'Armazém cheio!'; f.s.titleTicks = 0;
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, []);
+});
+test('wall transition releases attack while moving sideways to next row', () => {
+    const f = setup();
+    for (let x = -3; x <= 1; x++) f.solids.add(`${x},8`);
+    let lateralTicks = 0;
+    f.s.onTick = () => {
+        if (f.keys.get('key.forward') && Math.abs(Math.cos(f.s.yaw * Math.PI / 180)) < 0.1) {
+            lateralTicks++;
+            assert.strictEqual(f.keys.get('key.attack'), false);
+        }
+    };
+    f.run(); released(f);
+    assert(lateralTicks > 0);
+    assert.strictEqual(f.crops.size, 0);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
