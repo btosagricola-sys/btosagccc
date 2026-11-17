@@ -2,7 +2,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
 function setup(script = source) {
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20 };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
     function ground(x, z) { return (s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
     function block(x, y, z) {
@@ -43,15 +43,21 @@ function setup(script = source) {
     const hud = { getClass: () => 'hud' };
     Object.defineProperties(hud, {
         field_2016: { get: () => s.hudTitle === null ? null : text(s.hudTitle) },
-        field_2023: { get: () => s.hudTitle === null ? 0 : 20 },
+        field_2023: { get: () => s.hudTitle === null ? 0 : s.titleTicks },
         field_2018: { get: () => s.hudOverlay === null ? null : text(s.hudOverlay) },
         field_2041: { get: () => s.hudOverlay === null ? 0 : 20 }
     });
     const mc = { getClass: () => 'client', field_1705: hud };
     let run;
     const ctx = vm.createContext({
-        Java: { type: () => ({ wrap: value => value }) },
-        Reflection: { getDeclaredField: (type, name) => ({ setAccessible: () => {}, get: obj => obj[name], getInt: obj => obj[name] }) },
+        Java: { type: () => { if (s.noJavaType) throw Error('class loading unavailable'); return {wrap: value => value}; } },
+        Reflection: { getDeclaredField: (type, name) => {
+            const target = type === 'client' ? mc : hud;
+            if (!(name in target) || (s.noTitleProbe && ['field_2016', 'field_2023', 'title', 'titleRemainTicks'].includes(name))) {
+                throw Error('field unavailable: ' + name);
+            }
+            return { setAccessible: () => {}, get: obj => obj[name], getInt: obj => obj[name] };
+        } },
         Chat: { log: text => logs.push(text), say: (command, awaitSend) => { commandWait.push(awaitSend); commands.push(command); if (s.onSay) s.onSay(); } },
         JsMacros: { on: (event, fn) => { const listener = {event, fn}; listeners.add(listener); return listener; },
             off: listener => listeners.delete(listener) },
@@ -374,5 +380,36 @@ test('sold button changing to warehouse empty is recognized before closing', () 
     assert.strictEqual(f.s.closed, 1);
     assert(f.logs.some(t => t.includes('Venda confirmada')));
     assert.strictEqual(f.crops.size, 0);
+});
+test('per-character legacy RGB colors do not hide warehouse full notice', () => {
+    const f = salesFixture();
+    const colored = [...'Armazém cheio!'].map(c => '§x§f§f§0§0§0§0' + c).join('');
+    f.s.onTick = () => { if (f.s.ticks === 1) f.emit('Title', colored); };
+    f.s.onClick = () => { f.s.quantity = '0'; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert(f.logs.some(t => t.includes('Aviso reconhecido')));
+});
+test('missing title fields do not disable available actionbar polling', () => {
+    const f = setup(); f.s.noTitleProbe = true;
+    f.s.onTick = () => { if (f.s.ticks === 1) f.s.hudOverlay = 'Armazém cheio!'; };
+    f.s.onSay = () => { f.s.menu = {}; };
+    f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert(f.logs.some(t => t.includes('Leitor HUD v5 ativo: actionbar')));
+});
+test('visible title at startup works without Java.type or a new event', () => {
+    const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
+    f.s.onSay = () => { f.s.menu = {}; };
+    f.s.onClick = () => { f.s.quantity = '0'; f.s.hudTitle = null; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert(f.logs.some(t => t.includes('Texto HUD lido: titulo: Armazém cheio!')));
+});
+test('expired title does not trigger selling', () => {
+    const f = setup(); f.s.hudTitle = 'Armazém cheio!'; f.s.titleTicks = 0;
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, []);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

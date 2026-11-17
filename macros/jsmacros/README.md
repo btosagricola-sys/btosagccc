@@ -2,10 +2,10 @@
 
 ## Instalação
 
-`batata-ziguezague.js` é o script atual (v4). `batata-ziguezague.txt` contém o
+`batata-ziguezague.js` é o script atual (v5). `batata-ziguezague.txt` contém o
 mesmo código, para copiar e colar no editor do JsMacros. Pare a cópia anterior
 e substitua todo o conteúdo. Vincule a uma tecla livre, como F6, no evento de
-pressionar a tecla. Ela inicia e para. Confirme `Zigue-zague v4` no chat.
+pressionar a tecla. Ela inicia e para. Confirme `Zigue-zague v5` no chat.
 São scripts JavaScript para JsMacros, não mods JAR. Ainda precisam ser validados
 na instalação 1.21.4 do usuário.
 
@@ -68,7 +68,7 @@ node --check macros/jsmacros/batata-ziguezague.js
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
 
-A sintaxe e 35 testes com APIs simuladas passaram. Eles incluem colheita,
+A sintaxe e 39 testes com APIs simuladas passaram. Eles incluem colheita,
 desvio lateral, ausência de Shift, recuo, degrau, salto, parada e desconexão,
 HUD/chat, venda, fechamento com menu desatualizado, nenhuma venda por tempo,
 e medição do arco de virada em ambos os sentidos.
@@ -76,3 +76,29 @@ e medição do arco de virada em ambos os sentidos.
 Esses testes não executam Minecraft nem validam a comunicação com o servidor
 real. As APIs usadas foram conferidas no código oficial do JsMacros. A confirmação
 final das mensagens, da venda e do movimento depende do teste no jogo.
+
+
+## Diagnóstico de leitura do aviso — v5
+
+A leitura direta do HUD usa `getString()` do próprio texto, sem carregar
+`TextHelper` com `Java.type`. Campos de título, actionbar e subtítulo são
+pesquisados independentemente: a falta de um não desativa os demais. A leitura
+continua respeitando o tempo de exibição para não reagir a título expirado.
+
+A normalização também remove prefixos RGB legados `§x`, mesmo quando aplicados
+a cada letra, acentos, espaços e caracteres invisíveis antes de comparar o
+aviso de armazém cheio. Os listeners de texto continuam como alternativa.
+
+O chat agora mostra:
+
+- `Leitor HUD v5 ativo: ...` — canais que puderam ser abertos.
+- `Texto HUD lido: ...` — texto recebido, ao mudar, limitado a 220 caracteres.
+- `Aviso reconhecido: ...` — reconhecimento do armazém cheio.
+- `/farms enviado ao servidor` — envio do comando.
+- Erro completo de campo/texto, se a leitura falhar.
+
+Se ainda não vender no servidor, envie essas mensagens da v5. Não há acesso ao
+cliente do usuário neste ambiente; os testes simulados não estabelecem a causa
+exata do problema real. As quatro novas regressões cobrem RGB por caractere,
+ausência de campos de título, indisponibilidade de `Java.type`, texto já visível
+antes da ativação e descarte de título expirado. Total atual: 39 testes passaram.

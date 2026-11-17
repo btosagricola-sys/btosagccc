@@ -37,22 +37,36 @@
     let lastSafe = null, climb = null, descent = null;
     const recoveryVisits = new Map();
     let sale = null, saleCooldown = 0, hudReader = null;
+    let lastHudNotice = "";
     const listeners = [];
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
 
     function plain(text) {
-        return String(text).replace(/§[0-9a-fk-or]/gi, "").normalize("NFD")
+        return String(text).replace(/§[0-9a-fk-orx]/gi, "").normalize("NFD")
             .replace(/[\u0300-\u036f]/g, "").replace(/[\u200B-\u200D\uFEFF]/g, "").toLowerCase().trim();
     }
     function releaseKeys() {
         for (const key of keys) KeyBind.keyBind(key, false);
     }
+    function textString(text) {
+        if (text === null || text === undefined) return "";
+        if (typeof text === "string") return text;
+        if (typeof text.getString === "function") return String(text.getString());
+        throw new Error("Objeto de texto sem getString: " + String(text));
+    }
     function receive(text) {
         if (text === null || text === undefined || GlobalVars.getString(RUN) !== id) return;
-        const message = plain(text.getString());
+        const message = plain(textString(text));
         const state = GlobalVars.getString(SALE_STATE);
-        if (state === "idle" && /armazem\s+(?:esta\s+)?cheio/.test(message)) GlobalVars.putString(SALE_REQUEST, id);
+        const compact = message.replace(/[^a-z]/g, "");
+        if (state === "idle" && /armazem(?:esta)?cheio/.test(compact)) {
+            GlobalVars.putString(SALE_REQUEST, id);
+            if (message !== lastHudNotice) {
+                lastHudNotice = message;
+                Chat.log("[Batata] Aviso reconhecido: " + message.slice(0, 160));
+            }
+        }
         if (state === "confirm" && /batatas?/.test(message)
                 && /vendid|vendeu|venda (?:realizada|efetuada|concluida)/.test(message)
                 && !/nao |erro|falh|insuficiente/.test(message)) GlobalVars.putString(SALE_ACK, id);
@@ -89,22 +103,53 @@
 
     function prepareHudReader() {
         const mc = Client.getMinecraft();
-        function field(object, intermediary, named) {
-            const f = Reflection.getDeclaredField(object.getClass(), intermediary, named);
-            f.setAccessible(true); return f;
+        function field(object, names, optional) {
+            for (const name of names) {
+                try {
+                    const f = Reflection.getDeclaredField(object.getClass(), name);
+                    f.setAccessible(true); return f;
+                } catch (ignored) {}
+            }
+            if (optional) return null;
+            throw new Error("Campo nao encontrado: " + names.join(" / "));
         }
-        const hudField = field(mc, "field_1705", "inGameHud");
+        const hudField = field(mc, ["field_1705", "inGameHud"], false);
         const hud = hudField.get(mc);
-        const title = field(hud, "field_2016", "title"), titleTime = field(hud, "field_2023", "titleRemainTicks");
-        const overlay = field(hud, "field_2018", "overlayMessage"), overlayTime = field(hud, "field_2041", "overlayRemaining");
-        const textHelper = Java.type("xyz.wagyourtail.jsmacros.client.api.helpers.TextHelper");
+        const probes = [];
+        for (const spec of [
+            ["titulo", ["field_2016", "title"], ["field_2023", "titleRemainTicks"]],
+            ["actionbar", ["field_2018", "overlayMessage"], ["field_2041", "overlayRemaining"]],
+            ["subtitulo", ["field_2039", "subtitle"], ["field_2023", "titleRemainTicks"]]
+        ]) {
+            const value = field(hud, spec[1], true), timer = field(hud, spec[2], true);
+            if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
+        }
+        if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
+        Chat.log("[Batata] Leitor HUD v5 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
-            for (const pair of [[title, titleTime], [overlay, overlayTime]]) {
-                if (pair[1].getInt(currentHud) > 0) {
-                    const value = pair[0].get(currentHud);
-                    if (value !== null) receive(textHelper.wrap(value));
+            const samples = [];
+            for (const probe of probes) {
+                try {
+                    if (probe.timer.getInt(currentHud) <= 0) continue;
+                    const value = probe.value.get(currentHud);
+                    if (value === null) continue;
+                    const sample = textString(value);
+                    samples.push(probe.name + ": " + sample);
+                    receive(sample);
+                } catch (error) {
+                    const diagnostic = probe.name + ": " + String(error);
+                    if (diagnostic !== lastError) {
+                        lastError = diagnostic;
+                        Chat.log("[Batata] Erro ao ler HUD: " + diagnostic);
+                    }
                 }
+            }
+            const sample = samples.join(" | ");
+            if (sample && sample !== lastSample) {
+                lastSample = sample;
+                Chat.log("[Batata] Texto HUD lido: " + sample.slice(0, 220));
             }
         };
     }
@@ -269,13 +314,13 @@
         listeners.push(JsMacros.on("RecvMessage", JavaWrapper.methodToJava(e => receive(e.text))));
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
-        Chat.log("[Batata] Zigue-zague v4: vende so cheio, fecha menu, desvia de lado e vira direto. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Batata] Zigue-zague v5: vende so cheio, fecha menu, desvia de lado e vira direto. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             const p = Player.getPlayer();
             if (!p) { reason = "desconectou"; break; }
             if (hudReader !== null) {
                 try { hudReader(); }
-                catch (error) { hudReader = null; Chat.log("[Batata] Leitura direta do HUD falhou; eventos continuam ativos."); }
+                catch (error) { hudReader = null; Chat.log("[Batata] Leitura direta do HUD falhou: " + String(error) + "; eventos continuam ativos."); }
             }
             if (saleCooldown > 0 && --saleCooldown === 0) GlobalVars.putString(SALE_STATE, "idle");
             if (sale === null && GlobalVars.getString(SALE_REQUEST) === id) {
