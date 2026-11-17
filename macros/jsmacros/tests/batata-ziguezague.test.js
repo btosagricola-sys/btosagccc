@@ -5,16 +5,15 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
     script = script.replace(/const RETURN_SAME_ROW = (true|false);/, "const RETURN_SAME_ROW = " + sameRow + ";");
     if (!continuous) script = script.replace("const CONTINUOUS = true;", "const CONTINUOUS = false;");
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, lowerFromX: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0 };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, lowerFromX: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0, cropId: "minecraft:potatoes", sellName: "Vender Batatas", cropWord: "batatas", decoyName: "Outro item" };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
     function ground(x, z) { return (s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
     function block(x, y, z) {
         s.blockReads++;
-        s.blockReads++;
         const solid = (y === 64 || y === 65) && (solids.has(`${x},${z}`) || (s.hideSides && x !== 0));
         const cropY = (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64;
         const id = solid ? 'minecraft:hay_block' : y === cropY - 1 && ground(x, z) ? 'minecraft:farmland'
-            : y === cropY && crops.has(`${x},${z}`) ? 'minecraft:potatoes' : 'minecraft:air';
+            : y === cropY && crops.has(`${x},${z}`) ? s.cropId : 'minecraft:air';
         return { getId: () => id, getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
     }
     function ray() {
@@ -23,7 +22,7 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
         for (let i = 0; i <= 1; i++) {
             const x = Math.floor(s.x) + dx * i, z = Math.floor(s.z) + dz * i;
             if (solids.has(`${x},${z}`)) return { getId: () => 'minecraft:hay_block' };
-            if (crops.has(`${x},${z}`)) return { getId: () => 'minecraft:potatoes', getY: () => (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64, pos: `${x},${z}` };
+            if (crops.has(`${x},${z}`)) return { getId: () => s.cropId, getY: () => (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64, pos: `${x},${z}` };
         }
         return null;
     }
@@ -40,8 +39,8 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
         getSlots: section => { assert.strictEqual(section, 'container'); return Array.from({length: 54}, (_, i) => i); },
         getSlot: slot => ({
             isEmpty: () => false,
-            getName: () => text(slot === s.button && s.emptyButton ? 'Armazem vazio' : slot === s.button || slot === 99 || (s.duplicate && slot === 21) ? '§aVender Batatas' : 'Outro item'),
-            getLore: () => [text('Quantidade: ' + s.quantity + ' batatas')]
+            getName: () => text(slot === s.button && s.emptyButton ? 'Armazem vazio' : slot === s.button || slot === 99 || (s.duplicate && slot === 21) ? '§a' + s.sellName : slot === 22 ? s.decoyName : 'Outro item'),
+            getLore: () => [text('Quantidade: ' + s.quantity + ' ' + s.cropWord)]
         }),
         click: slot => { clicks.push(slot); if (s.onClick) s.onClick(); },
         close: () => { s.closed++; s.menu = null; }
@@ -79,7 +78,7 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
             if (jumping && !s.jumpLast) s.jumps++;
             s.jumpLast = jumping;
             if (jumping && s.allowClimb && s.y < 63.9375) s.y = 63.9375;
-            if (keys.get('key.attack')) { const hit = ray(); if (hit) { assert.strictEqual(hit.getId(), 'minecraft:potatoes'); crops.delete(hit.pos); s.harvests++; } }
+            if (keys.get('key.attack')) { const hit = ray(); if (hit) { assert.strictEqual(hit.getId(), s.cropId); crops.delete(hit.pos); s.harvests++; } }
             if ((keys.get('key.forward') || keys.get('key.back')) && s.move) {
                 const r = s.yaw * Math.PI / 180;
                 const speed = (keys.get('key.back') ? -1 : 1) * (keys.get('key.sneak') ? 0.07 : 0.1);
@@ -404,7 +403,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v10 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v11 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -497,7 +496,7 @@ test('blocked continuous harvesting retries instead of terminating itself', () =
     f.run(); released(f);
     assert.strictEqual(f.s.ticks, 700);
     assert(f.logs.some(t => t.includes('Aguardando recuperacao automatica')));
-    assert.strictEqual(f.logs.filter(t => t.startsWith('[Batata] Parada:')).length, 1);
+    assert.strictEqual(f.logs.filter(t => t.startsWith('[Colheita] Parada:')).length, 1);
 });
 test('same-row mode repeatedly reverses without changing lanes or crossing a drop', () => {
     const f = setup(source, true, true); f.s.lowerFromZ = 8;
@@ -652,5 +651,54 @@ test('after exiting a drop chooses the upper side rather than progressing toward
     assert.deepStrictEqual(lanes.slice(0, 3), [0, 1, 2]);
     assert(f.logs.some(t => t.includes('Lado do percurso corrigido')));
     assert.strictEqual(f.logs.filter(t => t.includes('Degrau; retorno de saida')).length, 1);
+});
+test('carrots are harvested and navigated with the default full sweep mode', () => {
+    const f = setup(source, true, false, true); f.s.cropId = 'minecraft:carrots';
+    f.s.onTick = () => { if (f.crops.size === 0) f.run(); };
+    f.run(); released(f);
+    assert.strictEqual(f.crops.size, 0);
+    assert(f.s.harvests >= 24);
+});
+function carrotSaleFixture() {
+    const f = salesFixture(); f.s.cropId = 'minecraft:carrots';
+    f.s.menuTitle = 'Fazenda de Cenoura'; f.s.sellName = 'Vender Cenouras'; f.s.cropWord = 'cenouras';
+    f.s.decoyName = 'Vender Batatas';
+    return f;
+}
+test('carrot menu clicks only sell carrots and resumes after zero quantity', () => {
+    const f = carrotSaleFixture(); f.s.onClick = () => { f.s.quantity = '0'; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert.deepStrictEqual(f.clicks, [20]);
+    assert.strictEqual(f.s.closed, 1);
+    assert(f.logs.some(t => t.includes('Clique em Vender Cenouras')));
+    assert(f.logs.some(t => t.includes('Venda confirmada')));
+    assert.strictEqual(f.crops.size, 0);
+});
+test('carrot sale confirmation is accepted from its server receipt', () => {
+    const f = carrotSaleFixture();
+    f.s.onClick = () => { f.emit('RecvMessage', 'Você vendeu 2.160 cenouras!'); f.s.menu = null; };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Venda confirmada')));
+});
+test('potato receipt does not falsely confirm a carrot sale', () => {
+    const f = carrotSaleFixture();
+    f.s.onClick = () => { f.emit('RecvMessage', 'Você vendeu 2.160 batatas!'); };
+    f.run(); released(f);
+    assert(!f.logs.some(t => t.includes('Venda confirmada')));
+    assert(f.logs.some(t => t.includes('sem confirmacao do saldo')));
+});
+test('carrot farm never clicks sell potatoes when sell carrots is absent', () => {
+    const f = carrotSaleFixture(); f.s.sellName = 'Vender Batatas'; f.s.decoyName = 'Outro item';
+    f.run(); released(f);
+    assert.strictEqual(f.clicks.length, 0);
+    assert(f.logs.some(t => t.includes('Vender Cenouras nao encontrado')));
+});
+test('starting height is calibrated above carrots as well as potatoes', () => {
+    const f = setup(); f.s.cropId = 'minecraft:carrots'; f.s.y = 64.02;
+    f.s.onTick = () => { f.s.y = 63.9375; };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Altura inicial corrigida')));
+    assert.strictEqual(f.crops.size, 0);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

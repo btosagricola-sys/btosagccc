@@ -1,11 +1,11 @@
-# Macro de batata — JsMacros / Minecraft 1.21.4
+# Macro de batata e cenoura — JsMacros / Minecraft 1.21.4
 
-## Instalar a v10
+## Instalar a v11
 
 Pare a macro anterior e substitua **todo** o código por `batata-ziguezague.js`.
 `batata-ziguezague.txt` é a mesma versão como documento de texto, para copiar e
 colar no editor do JsMacros. Vincule a uma tecla livre (ex.: F6), gatilho ao
-pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v10`
+pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v11`
 no chat. O nome antigo do arquivo foi mantido para facilitar a atualização.
 
 ## Padrão: zigue-zague de ida e volta pelo percurso inteiro
@@ -109,3 +109,29 @@ Os 57 testes simulados passaram. As duas regressões novas verificam que o
 retorno de saída ocorre uma única vez e que um lado com mais fileiras superiores
 é escolhido em vez de avançar para a borda rebaixada. Ainda falta confirmar o
 percurso no jogo real.
+
+
+## v11: batata e cenoura no mesmo script
+
+A navegação, a calibração do chão, a escolha do lado superior e o ataque agora
+reconhecem tanto `minecraft:potatoes` quanto `minecraft:carrots`. Não é preciso
+trocar manualmente a cultura antes de iniciar. Os IDs do script no GlobalVars
+continuam iguais para impedir duas versões antigas/novas rodando juntas; os
+avisos locais passam a usar o prefixo `[Colheita]`.
+
+Ao detectar `Armazém cheio`, `/farms` continua sendo o comando. A venda usa o
+menu que ele abriu:
+
+- `Fazenda de Batata`/`Fazenda de Batatas`: busca `Vender Batatas`.
+- `Fazenda de Cenoura`/`Fazenda de Cenouras`: busca `Vender Cenouras`.
+
+O reconhecimento ignora cores e acentos, mas espera esses nomes. Não clica no
+botão de outra cultura. Quantidades/recibos de cenoura são aceitos para confirmar
+a venda correspondente; recibos de batata não confirmam uma venda de cenoura.
+O fechamento do menu e o retorno à colheita permanecem iguais. Se o servidor
+usar outros nomes ou caminho de menus, será necessário ajustar após observar.
+
+A sintaxe e 63 testes simulados passaram: as seis verificações novas cobrem
+colheita de cenoura no modo padrão, venda e recibo de cenoura, rejeição de recibo
+ou botão de batata na fazenda de cenoura e calibração de altura sobre cenouras.
+Ainda é necessário testar a colheita e o menu de cenouras no servidor real.

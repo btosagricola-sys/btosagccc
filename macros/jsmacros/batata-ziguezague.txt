@@ -3,6 +3,11 @@
 (function () {
     const RUN = "btos.batata.zig.run", STOP = "btos.batata.zig.stop";
     const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
+    const PRODUCTS = {
+        batata: { button: "Vender Batatas", singular: "batata" },
+        cenoura: { button: "Vender Cenouras", singular: "cenoura" }
+    };
+    const SALE_PRODUCT = RUN + ".saleProduct";
     const PITCH = 55;
     const REVERSE_FIELD_SWEEP = true; // Zigue-zague de ida e de volta pelo conjunto de fileiras.
     const RETURN_SAME_ROW = false; // Opcao antiga: repetir somente uma linha.
@@ -19,7 +24,7 @@
     if (current) { GlobalVars.putString(STOP, current); return; }
     const first = Player.getPlayer();
     if (!first || Hud.getOpenScreen() !== null) {
-        Chat.log("[Batata] Entre no mundo e feche os menus."); return;
+        Chat.log("[Colheita] Entre no mundo e feche os menus."); return;
     }
     const id = String(Date.now()) + ":" + String(Math.random());
     let yaw = Math.round(first.getYaw() / 90) * 90;
@@ -64,6 +69,13 @@
         if (typeof text.getString === "function") return String(text.getString());
         throw new Error("Objeto de texto sem getString: " + String(text));
     }
+    function supportedCrop(id) {
+        return id === "minecraft:potatoes" || id === "minecraft:carrots";
+    }
+    function farmProduct(inv) {
+        const match = /^fazenda de (batatas?|cenouras?)$/.exec(plain(inv.getContainerTitle()));
+        return match === null ? null : match[1].startsWith("batata") ? PRODUCTS.batata : PRODUCTS.cenoura;
+    }
     function receive(text) {
         if (text === null || text === undefined || GlobalVars.getString(RUN) !== id) return;
         const message = plain(textString(text));
@@ -73,24 +85,26 @@
             GlobalVars.putString(SALE_REQUEST, id);
             if (message !== lastHudNotice) {
                 lastHudNotice = message;
-                Chat.log("[Batata] Aviso reconhecido: " + message.slice(0, 160));
+                Chat.log("[Colheita] Aviso reconhecido: " + message.slice(0, 160));
             }
         }
-        if (state === "confirm" && /batatas?/.test(message)
+        if (state === "confirm" && message.indexOf(GlobalVars.getString(SALE_PRODUCT) || "batata") >= 0
                 && /vendid|vendeu|venda (?:realizada|efetuada|concluida)/.test(message)
                 && !/nao |erro|falh|insuficiente/.test(message)) GlobalVars.putString(SALE_ACK, id);
     }
     function farmMenu() {
         if (Hud.getOpenScreen() === null) return null;
         const inv = Player.openInventory();
-        return /^fazenda de batatas?$/.test(plain(inv.getContainerTitle())) ? inv : null;
+        return farmProduct(inv) !== null ? inv : null;
     }
     function sellButton(inv) {
         const matches = [];
+        const product = farmProduct(inv);
+        if (product === null) return -1;
         // Somente o menu superior: nunca pesquisa itens do inventario do jogador.
         for (const slot of inv.getSlots("container")) {
             const item = inv.getSlot(slot);
-            if (!item.isEmpty() && plain(item.getName().getString()) === "vender batatas") matches.push(slot);
+            if (!item.isEmpty() && plain(item.getName().getString()) === plain(product.button)) matches.push(slot);
         }
         return matches.length === 1 ? matches[0] : -1;
     }
@@ -103,8 +117,8 @@
         const lines = [plain(item.getName().getString())];
         for (const line of item.getLore()) lines.push(plain(line.getString()));
         for (const line of lines) {
-            if (/armazem vazio|nenhuma batata|sem batatas/.test(line)) return 0;
-            const match = /quantidade\s*:\s*([0-9][0-9.,]*)\s+batatas?\b/.exec(line);
+            if (/armazem vazio|nenhuma (?:batata|cenoura)|sem (?:batatas|cenouras)/.test(line)) return 0;
+            const match = /quantidade\s*:\s*([0-9][0-9.,]*)\s+(?:batatas?|cenouras?)\b/.exec(line);
             if (match) return Number(match[1].replace(/[.,]/g, ""));
         }
         return null;
@@ -134,7 +148,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Batata] Leitor HUD v10 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v11 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -151,14 +165,14 @@
                     const diagnostic = probe.name + ": " + String(error);
                     if (diagnostic !== lastError) {
                         lastError = diagnostic;
-                        Chat.log("[Batata] Erro ao ler HUD: " + diagnostic);
+                        Chat.log("[Colheita] Erro ao ler HUD: " + diagnostic);
                     }
                 }
             }
             const sample = samples.join(" | ");
             if (sample && sample !== lastSample && plain(sample).indexOf("armaz") >= 0) {
                 lastSample = sample;
-                if (/armazem|vender/.test(plain(sample))) Chat.log("[Batata] Texto HUD lido: " + sample.slice(0, 220));
+                if (/armazem|vender/.test(plain(sample))) Chat.log("[Colheita] Texto HUD lido: " + sample.slice(0, 220));
             }
         };
     }
@@ -188,7 +202,7 @@
             throw Error("Chunk nao carregado; macro interrompida.");
         }
         const b = blockAt(x, y, z);
-        return b !== null && b.getId() === "minecraft:potatoes";
+        return b !== null && supportedCrop(b.getId());
     }
     function crop(x, y, z) {
         // Sobre farmland o Y dos pes pode terminar em .9375.
@@ -199,7 +213,7 @@
         const foot = blockAt(cx, cy, cz), head = blockAt(cx, cy + 1, cz);
         if (foot === null || head === null) return false;
         function clear(b) {
-            return ["minecraft:air", "minecraft:cave_air", "minecraft:potatoes"].indexOf(b.getId()) >= 0;
+            return ["minecraft:air", "minecraft:cave_air", "minecraft:potatoes", "minecraft:carrots"].indexOf(b.getId()) >= 0;
         }
         return clear(foot) && clear(head) && groundSupported(cx, cy, cz);
     }
@@ -256,7 +270,7 @@
                     if (!ahead || !walkable(gx + forward.x, cy, gz + forward.z)) continue;
                     route = path; routeIndex = 0; routeOrigin = { x: p.getX(), z: p.getZ() };
                     reverseAfterRoute = false; phase = "route";
-                    Chat.log("[Batata] Obstaculo: desviando para a lateral e seguindo em frente.");
+                    Chat.log("[Colheita] Obstaculo: desviando para a lateral e seguindo em frente.");
                     return true;
                 }
             }
@@ -274,7 +288,7 @@
                 const path = pathTo(bx, bz, gx, gz, cy);
                 if (path !== null) {
                     route = path; routeIndex = 0; routeOrigin = { x: p.getX(), z: p.getZ() }; reverseAfterRoute = true; phase = "route";
-                    Chat.log("[Batata] Parede/fim: passando para outra fileira e voltando.");
+                    Chat.log("[Colheita] Parede/fim: passando para outra fileira e voltando.");
                     return true;
                 }
             }
@@ -297,7 +311,7 @@
         phase = "retreat";
         resetBlocked(); idle = 0;
         checkpoint = { x: p.getX(), z: p.getZ() };
-        Chat.log("[Batata] Sem passagem: recuando " + steps + " bloco(s) para tentar novamente.");
+        Chat.log("[Colheita] Sem passagem: recuando " + steps + " bloco(s) para tentar novamente.");
         return true;
     }
     function recover(p, nextRowOnly) {
@@ -315,7 +329,7 @@
         saleCooldown = 100; GlobalVars.putString(SALE_STATE, "cooldown");
         if (note !== lastPauseNote) {
             lastPauseNote = note;
-            Chat.log("[Batata] Aguardando recuperacao automatica: " + note);
+            Chat.log("[Colheita] Aguardando recuperacao automatica: " + note);
         }
         return true;
     }
@@ -338,10 +352,10 @@
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
         const under = blockAt(bx, farmLevel - 1, bz);
         // Diagnostico observado: pes=air e chao=potatoes. Isso e altura inicial errada.
-        if (under !== null && under.getId() === "minecraft:potatoes" && walkable(bx, farmLevel - 1, bz)) {
+        if (under !== null && supportedCrop(under.getId()) && walkable(bx, farmLevel - 1, bz)) {
             farmLevel--;
             farmY = Math.min(p.getY(), farmLevel - 0.0625);
-            Chat.log("[Batata] Altura inicial corrigida: a planta nao e o chao.");
+            Chat.log("[Colheita] Altura inicial corrigida: a planta nao e o chao.");
         }
     }
     function upperSideScore(p, sign) {
@@ -365,7 +379,7 @@
         if (other > keep) {
             side.x = -side.x; side.z = -side.z;
             sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
-            Chat.log("[Batata] Lado do percurso corrigido para as fileiras do patamar superior.");
+            Chat.log("[Colheita] Lado do percurso corrigido para as fileiras do patamar superior.");
         }
     }
     function reverseFieldBoundary(p, isDrop) {
@@ -385,7 +399,7 @@
         if (!reverseSameRow(p, "Limite das fileiras; invertendo o percurso")) return false;
         side.x = -side.x; side.z = -side.z;
         sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
-        Chat.log("[Batata] Percurso invertido: continuara pelas fileiras do outro lado.");
+        Chat.log("[Colheita] Percurso invertido: continuara pelas fileiras do outro lado.");
         return true;
     }
     function resumeSameRow(p) {
@@ -407,7 +421,7 @@
         phase = "turnback"; missing = 0; end = null;
         route = []; retreat = null; resetBlocked();
         idle = 0; checkpoint = { x: p.getX(), z: p.getZ() };
-        Chat.log("[Batata] " + note + ": voltando pela mesma fileira.");
+        Chat.log("[Colheita] " + note + ": voltando pela mesma fileira.");
         return true;
     }
     function smoothLook(p, targetYaw, targetPitch) {
@@ -423,7 +437,7 @@
     }
     function setKeys(walk, sprint) {
         const hit = phase === "row" && walk ? Player.rayTraceBlock(4.5, false) : null;
-        KeyBind.keyBind("key.attack", phase === "row" && walk && hit !== null && hit.getId() === "minecraft:potatoes" && hit.getY() === farmLevel);
+        KeyBind.keyBind("key.attack", phase === "row" && walk && hit !== null && supportedCrop(hit.getId()) && hit.getY() === farmLevel);
         KeyBind.keyBind("key.forward", walk);
         KeyBind.keyBind("key.back", false);
         KeyBind.keyBind("key.sprint", sprint);
@@ -433,12 +447,13 @@
     try {
         GlobalVars.putString(SALE_REQUEST, ""); GlobalVars.putString(SALE_ACK, "");
         GlobalVars.putString(SALE_STATE, "idle");
+        GlobalVars.putString(SALE_PRODUCT, "");
         listeners.push(JsMacros.on("Title", JavaWrapper.methodToJava(e => receive(e.message))));
         listeners.push(JsMacros.on("RecvMessage", JavaWrapper.methodToJava(e => receive(e.text))));
         try { hudReader = prepareHudReader(); }
-        catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
+        catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Batata] Zigue-zague v10: retorno de saida uma vez, depois zigue-zague pelo patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v11: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
@@ -453,16 +468,16 @@
             }
             if (hudReader !== null && (cycle % 4 === 1 || sale !== null)) {
                 try { hudReader(); }
-                catch (error) { hudReader = null; Chat.log("[Batata] Leitura direta do HUD falhou: " + String(error) + "; eventos continuam ativos."); }
+                catch (error) { hudReader = null; Chat.log("[Colheita] Leitura direta do HUD falhou: " + String(error) + "; eventos continuam ativos."); }
             }
             if (saleCooldown > 0 && --saleCooldown === 0) GlobalVars.putString(SALE_STATE, "idle");
             if (sale === null && GlobalVars.getString(SALE_REQUEST) === id) {
                 releaseKeys();
                 sale = { stage: "menu", ticks: 0, x: p.getX(), y: p.getY(), z: p.getZ() };
                 GlobalVars.putString(SALE_REQUEST, ""); GlobalVars.putString(SALE_STATE, "menu");
-                Chat.log("[Batata] Armazem cheio: abrindo /farms para vender.");
+                Chat.log("[Colheita] Armazem cheio: abrindo /farms para vender.");
                 Chat.say("/farms", true);
-                Chat.log("[Batata] /farms enviado ao servidor.");
+                Chat.log("[Colheita] /farms enviado ao servidor.");
             }
             if (sale !== null) {
                 releaseKeys();
@@ -476,16 +491,19 @@
                         const slot = sellButton(inv);
                         if (slot >= 0) {
                             if (!inv.getHeld().isEmpty()) { reason = "item no cursor; venda cancelada sem clique"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
+                            const product = farmProduct(inv);
+                            sale.button = product.button;
+                            GlobalVars.putString(SALE_PRODUCT, product.singular);
                             sale.slot = slot; sale.before = warehouseQuantity(inv, slot);
                             sale.confirmed = false; sale.stage = "confirm"; sale.ticks = 0;
                             GlobalVars.putString(SALE_STATE, "confirm");
                             inv.click(slot);
-                            Chat.log("[Batata] Clique em Vender Batatas enviado; aguardando confirmacao.");
+                            Chat.log("[Colheita] Clique em " + sale.button + " enviado; aguardando confirmacao.");
                         }
                     }
                     if (sale.ticks >= 100) {
                         if (inv !== null) inv.close();
-                        reason = "botao Vender Batatas nao encontrado; menu fechado"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
+                        reason = "botao " + (inv !== null ? farmProduct(inv).button : "Vender Batatas") + " nao encontrado; menu fechado"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                     }
                 } else if (sale.stage === "confirm") {
                     const after = inv === null ? null : warehouseQuantity(inv, sale.slot);
@@ -501,12 +519,12 @@
                     if (Math.hypot(p.getX() - sale.x, p.getZ() - sale.z) > 1.5 || Math.abs(p.getY() - sale.y) > 0.3) {
                         reason = "posicao mudou durante a venda; reinicie na fileira"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                     }
-                    const confirmed = sale.confirmed;
+                    const confirmed = sale.confirmed, soldButton = sale.button;
                     sale = null; saleCooldown = 100;
                     GlobalVars.putString(SALE_ACK, ""); GlobalVars.putString(SALE_STATE, "cooldown");
                     idle = 0; checkpoint = { x: p.getX(), z: p.getZ() };
-                    Chat.log(confirmed ? "[Batata] Venda confirmada; menu fechado e colheita retomada."
-                        : "[Batata] Menu fechado apos clicar em Vender Batatas; retomando sem confirmacao do saldo.");
+                    Chat.log(confirmed ? "[Colheita] Venda confirmada; menu fechado e colheita retomada."
+                        : "[Colheita] Menu fechado apos clicar em " + soldButton + "; retomando sem confirmacao do saldo.");
                 } else if (sale.ticks >= 40) { reason = "menu de venda nao fechou"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                 Client.waitTick();
                 continue;
@@ -533,7 +551,7 @@
                                 || (!REVERSE_FIELD_SWEEP && RETURN_SAME_ROW && resumeSameRow(p))
                                 || (!REVERSE_FIELD_SWEEP && !RETURN_SAME_ROW && (findRoute(p, true) || findNearbyWork(p)))) {
                             idle = 0; checkpoint = { x: x, z: z };
-                            Chat.log("[Batata] Passagem/batatas encontradas; retomando automaticamente.");
+                            Chat.log("[Colheita] Passagem/batatas encontradas; retomando automaticamente.");
                         }
                     }
                 }
@@ -549,7 +567,7 @@
                 }
                 climb = { target: lastSafe, resume: phase, ticks: 0, turnTicks: 0, stable: 0, previousY: py };
                 phase = "climb";
-                Chat.log("[Batata] Caiu um degrau: tentando pular de volta para a plantacao.");
+                Chat.log("[Colheita] Caiu um degrau: tentando pular de volta para a plantacao.");
             }
             if (phase === "turnback") {
                 releaseKeys();
@@ -569,7 +587,7 @@
                     phase = climb.resume; climb = null;
                     idle = 0; checkpoint = { x: x, z: z };
                     setKeys(false, false);
-                    Chat.log("[Batata] Voltou para cima; continuando a colheita.");
+                    Chat.log("[Colheita] Voltou para cima; continuando a colheita.");
                 } else if (climb.ticks >= 80) {
                     reason = "nao conseguiu subir apos quatro tentativas de pulo"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                 } else {
@@ -739,10 +757,11 @@
         }
         GlobalVars.putString(SALE_REQUEST, ""); GlobalVars.putString(SALE_ACK, "");
         GlobalVars.putString(SALE_STATE, "off");
+        GlobalVars.putString(SALE_PRODUCT, "");
         for (const key of keys) {
             try { KeyBind.keyBind(key, false); } catch (ignored) {}
         }
         GlobalVars.putString(RUN, ""); GlobalVars.putString(STOP, "");
-        Chat.log("[Batata] Parada: " + reason + ".");
+        Chat.log("[Colheita] Parada: " + reason + ".");
     }
 })();
