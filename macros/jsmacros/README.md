@@ -2,10 +2,10 @@
 
 ## Instalação
 
-`batata-ziguezague.js` é o script atual (v6). `batata-ziguezague.txt` contém o
+`batata-ziguezague.js` é o script atual (v7). `batata-ziguezague.txt` contém o
 mesmo código, para copiar e colar no editor do JsMacros. Pare a cópia anterior
 e substitua todo o conteúdo. Vincule a uma tecla livre, como F6, no evento de
-pressionar a tecla. Ela inicia e para. Confirme `Zigue-zague v6` no chat.
+pressionar a tecla. Ela inicia e para. Confirme `Zigue-zague v7` no chat.
 São scripts JavaScript para JsMacros, não mods JAR. Ainda precisam ser validados
 na instalação 1.21.4 do usuário.
 
@@ -91,7 +91,7 @@ aviso de armazém cheio. Os listeners de texto continuam como alternativa.
 
 O chat agora mostra:
 
-- `Leitor HUD v6 ativo: ...` — canais que puderam ser abertos.
+- `Leitor HUD v7 ativo: ...` — canais que puderam ser abertos.
 - `Texto HUD lido: ...` — texto recebido, ao mudar, limitado a 220 caracteres.
 - `Aviso reconhecido: ...` — reconhecimento do armazém cheio.
 - `/farms enviado ao servidor` — envio do comando.
@@ -124,3 +124,34 @@ por verificação de permanência no patamar: o corpo do jogador não cruza a
 beirada, as fileiras superiores são colhidas e as inferiores ficam intocadas.
 Um teste adicional verifica que não ataca enquanto passa de lado na parede.
 Ainda falta testar o movimento no servidor real.
+
+
+## v7: modo contínuo e correção da altura inicial
+
+`CONTINUOUS = true` é o padrão. Os encerramentos por falta de passagem,
+fileira vazia e recuperação de movimento malsucedida passam a uma fase de espera
+com as teclas soltas. A cada 60 ticks, procura outra fileira do lado oposto ou
+batatas próximas em um caminho validado no mesmo nível. Reinicia os limites
+locais de recuperação nessa tentativa; a tecla manual continua encerrando.
+
+Se não houver plantas, espera elas reaparecerem. Não replanta nem consegue
+colher onde não há batatas. Ao abrir um menu alheio, pausa sem clicar e volta
+após ele fechar. Sem jogador conectado, aguarda; se a conexão retornar, verifica
+apoio e batatas antes de retomar. Não conecta ao servidor nem faz login sozinho.
+Campos incompatíveis, erros de API, menus de venda inesperados ou deslocamentos
+externos ainda podem exigir intervenção; não existe garantia de execução
+ininterrupta de 24 horas sem teste no cliente real.
+
+A mensagem `chao=minecraft:potatoes` observada pelo usuário indica que a leitura
+de apoio estava na altura das plantas. Ao iniciar, se uma planta aparece como
+chão e há apoio válido um nível abaixo, corrige a referência do piso. Essa
+calibração é só no início; não libera a descida de degraus durante o percurso.
+
+O diagnóstico de HUD agora registra principalmente mensagens de armazém/venda,
+reduzindo a enxurrada de `+1 Batata` e contadores de conquista no chat.
+
+A sintaxe e 46 testes com APIs simuladas passaram. Os novos testes cobrem altura
+inicial acima da farmland, vários ciclos de colheita/crescimento, espera por
+plantas novas, menu, reconexão e bloqueio contínuo até parada manual. Os testes
+anteriores podem desabilitar `CONTINUOUS` para verificar os limites de cada
+recuperação isoladamente. Isso não representa um ensaio real de 24 horas.

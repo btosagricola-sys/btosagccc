@@ -4,6 +4,8 @@
     const RUN = "btos.batata.zig.run", STOP = "btos.batata.zig.stop";
     const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
     const PITCH = 55;
+    const CONTINUOUS = true; // Espera e tenta recuperar, em vez de encerrar por falta de passagem.
+    const RETRY_TICKS = 60; // 3 segundos entre novas tentativas.
     const TURN_STEP = 10; // Graus por tick: viradas graduais.
     const ROW_WIDTH = 1; // Distancia entre fileiras em blocos.
     const SIDE = 1; // 1 = proxima fileira a direita inicial; -1 = a esquerda.
@@ -27,18 +29,19 @@
     let fieldMin = null, fieldMax = null;
     // Mantem sempre o mesmo lado global, mesmo depois de inverter o percurso.
     const side = { x: -forward.z * SIDE, z: forward.x * SIDE };
-    const sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
+    let sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
     let phase = "row", destination = null, end = null;
     let route = [], routeIndex = 0, routeOrigin = null, reverseAfterRoute = false;
     let blockedTicks = 0, blockedKey = "";
     let retreat = null, retreatCount = 0, lastRetreat = null;
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
-    const farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
+    let farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
     let lastSafe = null, climb = null;
     const recoveryVisits = new Map();
     let sale = null, saleCooldown = 0, hudReader = null;
     let lastHudNotice = "";
     const listeners = [];
+    let waitingTicks = 0, lastPauseNote = "", disconnected = false;
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
 
@@ -125,7 +128,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Batata] Leitor HUD v6 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Batata] Leitor HUD v7 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -147,16 +150,19 @@
                 }
             }
             const sample = samples.join(" | ");
-            if (sample && sample !== lastSample) {
+            if (sample && sample !== lastSample && plain(sample).indexOf("armaz") >= 0) {
                 lastSample = sample;
-                Chat.log("[Batata] Texto HUD lido: " + sample.slice(0, 220));
+                if (/armazem|vender/.test(plain(sample))) Chat.log("[Batata] Texto HUD lido: " + sample.slice(0, 220));
             }
         };
     }
 
     function potato(x, y, z) {
         const chunkX = Math.floor(x / 16), chunkZ = Math.floor(z / 16);
-        if (!World.isChunkLoaded(chunkX, chunkZ)) throw Error("Chunk nao carregado; macro interrompida.");
+        if (!World.isChunkLoaded(chunkX, chunkZ)) {
+            if (CONTINUOUS) return false;
+            throw Error("Chunk nao carregado; macro interrompida.");
+        }
         const b = World.getBlock(x, y, z);
         return b !== null && b.getId() === "minecraft:potatoes";
     }
@@ -280,6 +286,43 @@
         if (visits > 3) return false;
         return findRoute(p, !!nextRowOnly) || startRetreat(p);
     }
+    function pauseWork(note, p) {
+        if (!CONTINUOUS) return false;
+        releaseKeys();
+        phase = "waiting"; waitingTicks = 0;
+        route = []; retreat = null; climb = null; sale = null;
+        saleCooldown = 100; GlobalVars.putString(SALE_STATE, "cooldown");
+        if (note !== lastPauseNote) {
+            lastPauseNote = note;
+            Chat.log("[Batata] Aguardando recuperacao automatica: " + note);
+        }
+        return true;
+    }
+    function findNearbyWork(p) {
+        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+        for (let r = 1; r <= DETOUR_RADIUS; r++) {
+            for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                if (!crop(bx + dx, farmLevel, bz + dz) || !walkable(bx + dx, farmLevel, bz + dz)) continue;
+                const path = pathTo(bx, bz, bx + dx, bz + dz, farmLevel);
+                if (path === null || path.length === 0) continue;
+                route = path; routeIndex = 0; routeOrigin = { x: p.getX(), z: p.getZ() };
+                reverseAfterRoute = false; phase = "route";
+                return true;
+            }
+        }
+        return false;
+    }
+    function calibrateStartingHeight(p) {
+        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+        const under = World.getBlock(bx, farmLevel - 1, bz);
+        // Diagnostico observado: pes=air e chao=potatoes. Isso e altura inicial errada.
+        if (under !== null && under.getId() === "minecraft:potatoes" && walkable(bx, farmLevel - 1, bz)) {
+            farmLevel--;
+            farmY = Math.min(p.getY(), farmLevel - 0.0625);
+            Chat.log("[Batata] Altura inicial corrigida: a planta nao e o chao.");
+        }
+    }
     function smoothLook(p, targetYaw, targetPitch) {
         const currentYaw = p.getYaw(), currentPitch = p.getPitch();
         let delta = ((targetYaw - currentYaw + 180) % 360 + 360) % 360 - 180;
@@ -307,10 +350,19 @@
         listeners.push(JsMacros.on("RecvMessage", JavaWrapper.methodToJava(e => receive(e.text))));
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
-        Chat.log("[Batata] Zigue-zague v6: permanece em cima e volta pela proxima fileira nas beiradas. W + Ctrl. Aperte a mesma tecla para parar.");
+        calibrateStartingHeight(first);
+        Chat.log("[Batata] Zigue-zague v7: modo continuo, recuperacao automatica e nivel superior fixo. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             const p = Player.getPlayer();
-            if (!p) { reason = "desconectou"; break; }
+            if (!p) {
+                if (!CONTINUOUS) { reason = "desconectou"; break; }
+                releaseKeys(); disconnected = true;
+                Client.waitTick(); continue;
+            }
+            if (disconnected) {
+                disconnected = false;
+                pauseWork("Conexao voltou; verificando a plantacao antes de retomar", p);
+            }
             if (hudReader !== null) {
                 try { hudReader(); }
                 catch (error) { hudReader = null; Chat.log("[Batata] Leitura direta do HUD falhou: " + String(error) + "; eventos continuam ativos."); }
@@ -329,13 +381,13 @@
                 sale.ticks++;
                 const inv = farmMenu();
                 if (Hud.getOpenScreen() !== null && inv === null) {
-                    reason = "menu inesperado durante a venda; nenhum clique enviado"; break;
+                    reason = "menu inesperado durante a venda; nenhum clique enviado"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                 }
                 if (sale.stage === "menu") {
                     if (inv !== null && sale.ticks >= 6) {
                         const slot = sellButton(inv);
                         if (slot >= 0) {
-                            if (!inv.getHeld().isEmpty()) { reason = "item no cursor; venda cancelada sem clique"; break; }
+                            if (!inv.getHeld().isEmpty()) { reason = "item no cursor; venda cancelada sem clique"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                             sale.slot = slot; sale.before = warehouseQuantity(inv, slot);
                             sale.confirmed = false; sale.stage = "confirm"; sale.ticks = 0;
                             GlobalVars.putString(SALE_STATE, "confirm");
@@ -345,7 +397,7 @@
                     }
                     if (sale.ticks >= 100) {
                         if (inv !== null) inv.close();
-                        reason = "botao Vender Batatas nao encontrado; menu fechado"; break;
+                        reason = "botao Vender Batatas nao encontrado; menu fechado"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                     }
                 } else if (sale.stage === "confirm") {
                     const after = inv === null ? null : warehouseQuantity(inv, sale.slot);
@@ -359,7 +411,7 @@
                     }
                 } else if (Hud.getOpenScreen() === null) {
                     if (Math.hypot(p.getX() - sale.x, p.getZ() - sale.z) > 1.5 || Math.abs(p.getY() - sale.y) > 0.3) {
-                        reason = "posicao mudou durante a venda; reinicie na fileira"; break;
+                        reason = "posicao mudou durante a venda; reinicie na fileira"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                     }
                     const confirmed = sale.confirmed;
                     sale = null; saleCooldown = 100;
@@ -367,21 +419,41 @@
                     idle = 0; checkpoint = { x: p.getX(), z: p.getZ() };
                     Chat.log(confirmed ? "[Batata] Venda confirmada; menu fechado e colheita retomada."
                         : "[Batata] Menu fechado apos clicar em Vender Batatas; retomando sem confirmacao do saldo.");
-                } else if (sale.ticks >= 40) { reason = "menu de venda nao fechou"; break; }
+                } else if (sale.ticks >= 40) { reason = "menu de venda nao fechou"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                 Client.waitTick();
                 continue;
             }
-            if (Hud.getOpenScreen() !== null) { reason = "menu aberto"; break; }
+            if (Hud.getOpenScreen() !== null) {
+                if (!CONTINUOUS) { reason = "menu aberto"; break; }
+                releaseKeys(); Client.waitTick(); continue;
+            }
             const x = p.getX(), z = p.getZ(), y = Math.floor(p.getY());
             const bx = Math.floor(x), bz = Math.floor(z);
             const py = p.getY();
+            if (phase === "waiting") {
+                releaseKeys();
+                if (++waitingTicks >= RETRY_TICKS) {
+                    waitingTicks = 0;
+                    // Nao caminha para fora do patamar ou em outro local apos reconectar.
+                    if (Math.abs(py - farmY) <= 0.2 && walkable(bx, farmLevel, bz)) {
+                        recoveryVisits.clear(); retreatCount = 0; lastRetreat = null; resetBlocked();
+                        side.x = -side.x; side.z = -side.z;
+                        sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
+                        if (findRoute(p, true) || findNearbyWork(p)) {
+                            idle = 0; checkpoint = { x: x, z: z };
+                            Chat.log("[Batata] Passagem/batatas encontradas; retomando automaticamente.");
+                        }
+                    }
+                }
+                Client.waitTick(); continue;
+            }
             if (phase !== "climb" && Math.abs(py - farmY) <= 0.15 && walkable(bx, farmLevel, bz)) {
                 lastSafe = { x: bx + 0.5, z: bz + 0.5 };
             }
             if (phase !== "climb" && py < farmY - 0.6) {
                 if (py < farmY - 1.3 || lastSafe === null
                         || Math.hypot(lastSafe.x - x, lastSafe.z - z) > 3) {
-                    reason = "queda sem retorno de um bloco ao alcance"; break;
+                    reason = "queda sem retorno de um bloco ao alcance"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                 }
                 climb = { target: lastSafe, resume: phase, ticks: 0, turnTicks: 0, stable: 0, previousY: py };
                 phase = "climb";
@@ -389,7 +461,7 @@
             }
             if (phase === "climb") {
                 if (py < farmY - 1.3 || !walkable(Math.floor(climb.target.x), farmLevel, Math.floor(climb.target.z))) {
-                    reason = "queda profunda ou ponto de retorno bloqueado"; break;
+                    reason = "queda profunda ou ponto de retorno bloqueado"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                 }
                 const distance = Math.hypot(climb.target.x - x, climb.target.z - z);
                 const landed = Math.abs(py - farmY) <= 0.15 && Math.abs(py - climb.previousY) < 0.02
@@ -402,14 +474,14 @@
                     setKeys(false, false);
                     Chat.log("[Batata] Voltou para cima; continuando a colheita.");
                 } else if (climb.ticks >= 80) {
-                    reason = "nao conseguiu subir apos quatro tentativas de pulo"; break;
+                    reason = "nao conseguiu subir apos quatro tentativas de pulo"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                 } else {
                     const aligned = smoothLook(p, Math.atan2(-(climb.target.x - x), climb.target.z - z) * 180 / Math.PI, PITCH);
                     setKeys(aligned && distance > 0.18, false);
                     // Pulsos de pulo, liberando entre tentativas. Nao segura Shift.
                     KeyBind.keyBind("key.jump", aligned && climb.ticks % 20 < 6);
                     if (aligned) climb.ticks++;
-                    else if (++climb.turnTicks > 40) { reason = "nao conseguiu alinhar para subir"; break; }
+                    else if (++climb.turnTicks > 40) { reason = "nao conseguiu alinhar para subir"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                 }
                 Client.waitTick();
                 continue;
@@ -421,16 +493,16 @@
                     retreat = null;
                     // Depois de afastar da parede, prioriza a fileira ao lado.
                     if (!findRoute(p, true) && !findRoute(p, false) && !startRetreat(p)) {
-                        reason = "sem passagem apos tres recuos"; break;
+                        reason = "sem passagem apos tres recuos"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                     }
                     idle = 0; checkpoint = { x: x, z: z };
                 } else if (++retreat.ticks > 60) {
-                    reason = "recuo bloqueado; caminho atras indisponivel"; break;
+                    reason = "recuo bloqueado; caminho atras indisponivel"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                 } else {
                     const behindX = Math.floor(x - forward.x * 0.5);
                     const behindZ = Math.floor(z - forward.z * 0.5);
                     if (!walkable(behindX, farmLevel, behindZ)) {
-                        reason = "recuo interrompido por bloco ou falta de chao atras"; break;
+                        reason = "recuo interrompido por bloco ou falta de chao atras"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue;
                     }
                     const aligned = smoothLook(p, yaw, PITCH);
                     KeyBind.keyBind("key.attack", false);
@@ -465,7 +537,7 @@
                     }
                     // Sem batatas no mesmo nivel depois do bloqueio: parede ou beirada.
                     // Prioriza a proxima fileira em vez de limpar os cantos.
-                    if (!recover(p, !cropsBeyond)) { reason = "sem passagem no nivel superior: " + describeBlock(ax, az); break; }
+                    if (!recover(p, !cropsBeyond)) { reason = "sem passagem no nivel superior: " + describeBlock(ax, az); if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                     resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
                 } else resetBlocked();
             }
@@ -487,7 +559,7 @@
                 // Nao vira cedo apenas porque o ataque ja quebrou as plantas na mira.
                 if (missing >= 4 && (end === null || progress >= end - 0.15)) {
                     setKeys(false, false);
-                    if (!findRoute(p, true)) { reason = "nao ha batatas na proxima fileira no mesmo nivel"; break; }
+                    if (!findRoute(p, true)) { reason = "nao ha batatas na proxima fileira no mesmo nivel"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                     idle = 0; checkpoint = { x: x, z: z };
                 } else setKeys(facingRow, facingRow);
             } else if (phase === "route") {
@@ -509,7 +581,7 @@
                     setKeys(false, false);
                     const px = Math.floor(point.x), pz = Math.floor(point.z);
                     if (blockedFor(px, pz) < 10) { Client.waitTick(); continue; }
-                    if (!recover(p)) { reason = "passagem bloqueada: " + describeBlock(px, pz); break; }
+                    if (!recover(p)) { reason = "passagem bloqueada: " + describeBlock(px, pz); if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                     resetBlocked(); idle = 0; checkpoint = { x: x, z: z };
                 } else {
                     resetBlocked();
@@ -531,9 +603,9 @@
             if (moved >= 0.08) { checkpoint = { x: x, z: z }; idle = 0; }
             else if (++idle >= 20 && phase !== "route" && phase !== "retreat") {
                 setKeys(false, false);
-                if (!recover(p)) { reason = "sem passagem local para desviar ou voltar"; break; }
+                if (!recover(p)) { reason = "sem passagem local para desviar ou voltar"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
                 idle = 0; checkpoint = { x: x, z: z };
-            } else if (idle >= 60) { reason = "desvio bloqueado por 3 segundos"; break; }
+            } else if (idle >= 60) { reason = "desvio bloqueado por 3 segundos"; if (!pauseWork(reason, p)) break; Client.waitTick(); continue; }
             Client.waitTick();
         }
     } finally {

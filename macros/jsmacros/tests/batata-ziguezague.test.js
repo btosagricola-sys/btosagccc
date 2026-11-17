@@ -1,8 +1,9 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
-function setup(script = source) {
+function setup(script = source, continuous = false) {
+    if (!continuous) script = script.replace("const CONTINUOUS = true;", "const CONTINUOUS = false;");
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20 };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0 };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
     function ground(x, z) { return (s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
     function block(x, y, z) {
@@ -73,7 +74,7 @@ function setup(script = source) {
             if (jumping && !s.jumpLast) s.jumps++;
             s.jumpLast = jumping;
             if (jumping && s.allowClimb && s.y < 63.9375) s.y = 63.9375;
-            if (keys.get('key.attack')) { const hit = ray(); if (hit) { assert.strictEqual(hit.getId(), 'minecraft:potatoes'); crops.delete(hit.pos); } }
+            if (keys.get('key.attack')) { const hit = ray(); if (hit) { assert.strictEqual(hit.getId(), 'minecraft:potatoes'); crops.delete(hit.pos); s.harvests++; } }
             if ((keys.get('key.forward') || keys.get('key.back')) && s.move) {
                 const r = s.yaw * Math.PI / 180;
                 const speed = (keys.get('key.back') ? -1 : 1) * (keys.get('key.sneak') ? 0.07 : 0.1);
@@ -398,7 +399,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v6 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v7 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -426,5 +427,71 @@ test('wall transition releases attack while moving sideways to next row', () => 
     f.run(); released(f);
     assert(lateralTicks > 0);
     assert.strictEqual(f.crops.size, 0);
+});
+test('starting above farmland calibrates a potato block mistakenly treated as floor', () => {
+    const f = setup(); f.s.y = 64.02;
+    f.s.onTick = () => { f.s.y = 63.9375; };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Altura inicial corrigida')));
+    assert.strictEqual(f.crops.size, 0);
+});
+test('continuous mode survives multiple harvest and regrowth cycles until manually stopped', () => {
+    const f = setup(source, true);
+    let cycles = 0;
+    f.s.onTick = () => {
+        if (f.crops.size === 0) {
+            cycles++;
+            for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) f.crops.add(`${x},${z}`);
+        }
+        if (f.s.ticks >= 2500) f.run();
+    };
+    f.run(); released(f);
+    assert.strictEqual(f.s.ticks, 2500);
+    assert(cycles >= 2);
+    assert(f.s.harvests > 48);
+    assert(f.logs.some(t => t.includes('retomando automaticamente')));
+});
+test('empty field waits for potatoes to reappear then resumes without another activation', () => {
+    const f = setup(source, true); f.crops.clear();
+    f.s.onTick = () => {
+        if (f.s.ticks === 180) for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) f.crops.add(`${x},${z}`);
+        if (f.s.ticks >= 500) f.run();
+    };
+    f.run(); released(f);
+    assert(f.s.harvests > 0);
+    assert(f.logs.some(t => t.includes('Aguardando recuperacao automatica')));
+    assert(f.logs.some(t => t.includes('retomando automaticamente')));
+});
+test('continuous mode waits through a menu and resumes after it closes', () => {
+    const f = setup(source, true);
+    f.s.onTick = () => {
+        if (f.s.ticks === 1) f.s.menu = {};
+        if (f.s.ticks === 20) f.s.menu = null;
+        if (f.s.ticks >= 100) f.run();
+    };
+    f.run(); released(f);
+    assert.strictEqual(f.s.ticks, 100);
+    assert(f.s.harvests > 2);
+    assert.strictEqual(f.clicks.length, 0);
+});
+test('continuous mode stays active while disconnected and rechecks the field on return', () => {
+    const f = setup(source, true);
+    f.s.onTick = () => {
+        if (f.s.ticks === 1) f.s.connected = false;
+        if (f.s.ticks === 20) f.s.connected = true;
+        if (f.s.ticks >= 160) f.run();
+    };
+    f.run(); released(f);
+    assert.strictEqual(f.s.ticks, 160);
+    assert(f.logs.some(t => t.includes('Conexao voltou')));
+    assert(f.logs.some(t => t.includes('retomando automaticamente')));
+});
+test('blocked continuous harvesting retries instead of terminating itself', () => {
+    const f = setup(source, true); f.s.move = false;
+    f.s.onTick = () => { if (f.s.ticks >= 700) f.run(); };
+    f.run(); released(f);
+    assert.strictEqual(f.s.ticks, 700);
+    assert(f.logs.some(t => t.includes('Aguardando recuperacao automatica')));
+    assert.strictEqual(f.logs.filter(t => t.startsWith('[Batata] Parada:')).length, 1);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
