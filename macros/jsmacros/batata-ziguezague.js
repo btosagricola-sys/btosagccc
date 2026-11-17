@@ -5,7 +5,10 @@
     const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
     const PRODUCTS = {
         batata: { button: "Vender Batatas", singular: "batata" },
-        cenoura: { button: "Vender Cenouras", singular: "cenoura" }
+        cenoura: { button: "Vender Cenouras", singular: "cenoura" },
+        fungo: { button: "Vender Fungos", singular: "fungo", aliases: [
+            "vender fungo", "vender fungos", "vender fungo do nether", "vender fungos do nether"
+        ] }
     };
     const SALE_PRODUCT = RUN + ".saleProduct";
     const PITCH = 55;
@@ -71,11 +74,14 @@
         throw new Error("Objeto de texto sem getString: " + String(text));
     }
     function supportedCrop(id) {
-        return id === "minecraft:potatoes" || id === "minecraft:carrots";
+        return ["minecraft:potatoes", "minecraft:carrots", "minecraft:nether_wart",
+            "minecraft:crimson_fungus", "minecraft:warped_fungus"].indexOf(id) >= 0;
     }
     function farmProduct(inv) {
-        const match = /^fazenda de (batatas?|cenouras?)$/.exec(plain(inv.getContainerTitle()));
-        return match === null ? null : match[1].startsWith("batata") ? PRODUCTS.batata : PRODUCTS.cenoura;
+        const match = /^fazenda de (batatas?|cenouras?|fungos?(?: do nether)?)$/.exec(plain(inv.getContainerTitle()));
+        if (match === null) return null;
+        return match[1].startsWith("batata") ? PRODUCTS.batata
+            : match[1].startsWith("cenoura") ? PRODUCTS.cenoura : PRODUCTS.fungo;
     }
     function receive(text) {
         if (text === null || text === undefined || GlobalVars.getString(RUN) !== id) return;
@@ -105,7 +111,10 @@
         // Somente o menu superior: nunca pesquisa itens do inventario do jogador.
         for (const slot of inv.getSlots("container")) {
             const item = inv.getSlot(slot);
-            if (!item.isEmpty() && plain(item.getName().getString()) === plain(product.button)) matches.push(slot);
+            if (!item.isEmpty()) {
+                const name = plain(item.getName().getString());
+                if (name === plain(product.button) || (product.aliases && product.aliases.indexOf(name) >= 0)) matches.push(slot);
+            }
         }
         return matches.length === 1 ? matches[0] : -1;
     }
@@ -118,8 +127,8 @@
         const lines = [plain(item.getName().getString())];
         for (const line of item.getLore()) lines.push(plain(line.getString()));
         for (const line of lines) {
-            if (/armazem vazio|nenhuma (?:batata|cenoura)|sem (?:batatas|cenouras)/.test(line)) return 0;
-            const match = /quantidade\s*:\s*([0-9][0-9.,]*)\s+(?:batatas?|cenouras?)\b/.exec(line);
+            if (/armazem vazio|nenhuma? (?:batata|cenoura|fungo)|sem (?:batatas|cenouras|fungos)/.test(line)) return 0;
+            const match = /quantidade\s*:\s*([0-9][0-9.,]*)\s+(?:batatas?|cenouras?|fungos?)\b/.exec(line);
             if (match) return Number(match[1].replace(/[.,]/g, ""));
         }
         return null;
@@ -149,7 +158,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v12 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v13 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -192,7 +201,8 @@
     function groundSupported(cx, cy, cz) {
         const ground = blockAt(cx, cy - 1, cz);
         if (ground === null) return false;
-        const soil = ["minecraft:farmland", "minecraft:dirt", "minecraft:grass_block", "minecraft:dirt_path"];
+        const soil = ["minecraft:farmland", "minecraft:dirt", "minecraft:grass_block", "minecraft:dirt_path",
+            "minecraft:soul_sand", "minecraft:crimson_nylium", "minecraft:warped_nylium"];
         return soil.indexOf(ground.getId()) >= 0
             || (!ground.getBlockStateHelper().isLiquid() && ground.getBlockStateHelper().isSolid());
     }
@@ -214,7 +224,7 @@
         const foot = blockAt(cx, cy, cz), head = blockAt(cx, cy + 1, cz);
         if (foot === null || head === null) return false;
         function clear(b) {
-            return ["minecraft:air", "minecraft:cave_air", "minecraft:potatoes", "minecraft:carrots"].indexOf(b.getId()) >= 0;
+            return b.getId() === "minecraft:air" || b.getId() === "minecraft:cave_air" || supportedCrop(b.getId());
         }
         return clear(foot) && clear(head) && groundSupported(cx, cy, cz);
     }
@@ -475,7 +485,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v12: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v13: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();

@@ -5,14 +5,14 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
     script = script.replace(/const RETURN_SAME_ROW = (true|false);/, "const RETURN_SAME_ROW = " + sameRow + ";");
     if (!continuous) script = script.replace("const CONTINUOUS = true;", "const CONTINUOUS = false;");
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, lowerFromX: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0, cropId: "minecraft:potatoes", sellName: "Vender Batatas", cropWord: "batatas", decoyName: "Outro item" };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, lowerFromX: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0, cropId: "minecraft:potatoes", soilId: "minecraft:farmland", sellName: "Vender Batatas", cropWord: "batatas", decoyName: "Outro item" };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
     function ground(x, z) { return (s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
     function block(x, y, z) {
         s.blockReads++;
         const solid = (y === 64 || y === 65) && (solids.has(`${x},${z}`) || (s.hideSides && x !== 0));
         const cropY = (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64;
-        const id = solid ? 'minecraft:hay_block' : y === cropY - 1 && ground(x, z) ? 'minecraft:farmland'
+        const id = solid ? 'minecraft:hay_block' : y === cropY - 1 && ground(x, z) ? s.soilId
             : y === cropY && crops.has(`${x},${z}`) ? s.cropId : 'minecraft:air';
         return { getId: () => id, getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
     }
@@ -403,7 +403,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v12 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v13 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -733,5 +733,53 @@ test('corner sweep works with carrots too and keeps all obstacle blocks intact',
     assert.deepStrictEqual(lanes.slice(0, 3), [0, -1, -2]);
     assert.strictEqual(f.solids.size, 12);
     assert(!f.keyHistory.some(([key, down]) => key === 'key.sneak' && down));
+});
+test('harvests nether wart on soul sand in the default sweep mode', () => {
+    const f = setup(source, true, false, true);
+    f.s.cropId = 'minecraft:nether_wart'; f.s.soilId = 'minecraft:soul_sand'; f.s.y = 63.875;
+    f.s.onTick = () => { if (f.crops.size === 0) f.run(); };
+    f.run(); released(f);
+    assert.strictEqual(f.crops.size, 0);
+    assert(f.s.harvests >= 24);
+});
+test('harvests both crimson and warped fungi on their nylium', () => {
+    for (const type of ['crimson', 'warped']) {
+        const f = setup(source, true, false, true);
+        f.s.cropId = 'minecraft:' + type + '_fungus'; f.s.soilId = 'minecraft:' + type + '_nylium';
+        f.s.onTick = () => { if (f.crops.size === 0) f.run(); };
+        f.run(); released(f); assert.strictEqual(f.crops.size, 0);
+    }
+});
+function fungusSaleFixture(title = 'Fazenda de Fungo', button = 'Vender Fungos') {
+    const f = salesFixture(); f.s.cropId = 'minecraft:nether_wart'; f.s.soilId = 'minecraft:soul_sand';
+    f.s.menuTitle = title; f.s.sellName = button; f.s.cropWord = 'fungos'; f.s.decoyName = 'Vender Batatas';
+    return f;
+}
+test('fungus farm selects sell fungi and confirms zero quantity', () => {
+    const f = fungusSaleFixture(); f.s.onClick = () => { f.s.quantity = '0'; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.clicks, [20]);
+    assert.strictEqual(f.s.closed, 1);
+    assert(f.logs.some(t => t.includes('Venda confirmada')));
+    assert.strictEqual(f.crops.size, 0);
+});
+test('accepts nether fungus menu and button aliases', () => {
+    const f = fungusSaleFixture('Fazenda de Fungos do Nether', 'Vender Fungos do Nether');
+    f.s.onClick = () => { f.emit('RecvMessage', 'Você vendeu 2.160 fungos do Nether!'); f.s.menu = null; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.clicks, [20]);
+    assert(f.logs.some(t => t.includes('Venda confirmada')));
+});
+test('fungus farm refuses a potato button instead of sell fungi', () => {
+    const f = fungusSaleFixture(); f.s.sellName = 'Vender Batatas';
+    f.run(); released(f);
+    assert.strictEqual(f.clicks.length, 0);
+});
+test('nether wart crop is not mistaken for the starting support block', () => {
+    const f = setup(); f.s.cropId = 'minecraft:nether_wart'; f.s.soilId = 'minecraft:soul_sand'; f.s.y = 64.02;
+    f.s.onTick = () => { f.s.y = 63.9375; };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Altura inicial corrigida')));
+    assert.strictEqual(f.crops.size, 0);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

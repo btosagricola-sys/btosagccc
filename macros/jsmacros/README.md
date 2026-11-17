@@ -1,11 +1,11 @@
-# Macro de batata e cenoura — JsMacros / Minecraft 1.21.4
+# Macro de batata, cenoura e fungo do Nether — JsMacros / Minecraft 1.21.4
 
-## Instalar a v12
+## Instalar a v13
 
 Pare a macro anterior e substitua **todo** o código por `batata-ziguezague.js`.
 `batata-ziguezague.txt` é a mesma versão como documento de texto, para copiar e
 colar no editor do JsMacros. Vincule a uma tecla livre (ex.: F6), gatilho ao
-pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v12`
+pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v13`
 no chat. O nome antigo do arquivo foi mantido para facilitar a atualização.
 
 ## Padrão: zigue-zague de ida e volta pelo percurso inteiro
@@ -156,3 +156,24 @@ em que as fileiras seguintes terminam quatro blocos antes da primeira: a macro
 precisa visitar a terceira fileira e depois retornar na ordem correta. O cenário
 também foi testado com cenoura, mantendo os blocos da parede e sem agachar.
 Ainda é necessário validar o canto real mostrado pelo usuário.
+
+
+## v13: fungo do Nether
+
+Além de batata e cenoura, reconhece `minecraft:nether_wart` (plantação de fungo
+do Nether), `minecraft:crimson_fungus` e `minecraft:warped_fungus`. As plantas
+participam da navegação, escolha de fileira e ataque. Areia das almas e os dois
+nicélios são reconhecidos como apoio. Mantém a navegação no patamar superior.
+
+Para venda, os títulos `Fazenda de Fungo`, `Fazenda de Fungos` e as variantes
+`do Nether` aceitam botões `Vender Fungos`, `Vender Fungo`, `Vender Fungo do Nether`
+ou `Vender Fungos do Nether`. Só clica se houver um único botão compatível e
+continua exigindo o aviso de armazém cheio. Recibos/quantidades de fungos podem
+confirmar a venda. Os nomes reais do menu do servidor ainda precisam ser
+conferidos; se forem diferentes, envie uma captura do título e do botão.
+
+A sintaxe e 71 testes simulados passaram. Os seis novos casos cobrem fungo do
+Nether na areia das almas, fungos carmesim/distorcido no nicélio, venda, nomes de
+menu/botão, recusa de botão de outra cultura e calibração de altura sobre fungos.
+Não houve teste no Minecraft real. Essa extensão de culturas não diagnostica
+nem estabelece correção do lag informado anteriormente.
