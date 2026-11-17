@@ -73,3 +73,33 @@ A movimentação real no servidor ainda precisa ser testada:
 ```sh
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
+
+## Zigue-zague com desvio
+
+Use `batata-ziguezague.js`, ou copie o conteúdo de `batata-ziguezague.txt` para o
+editor do JsMacros. Os dois arquivos têm o mesmo código. Substitua a versão
+anterior; não execute as duas ao mesmo tempo.
+
+Comece na primeira fileira, com as próximas fileiras à direita. `SIDE = -1`
+inverte esse lado; `ROW_WIDTH` define o espaçamento, em blocos. A mesma tecla
+inicia e para. O script corre durante a colheita e só ataca quando a mira aponta
+para `minecraft:potatoes`.
+
+Ao encontrar um bloco à frente, procura um caminho curto, com espaço para os pés
+e a cabeça e chão de apoio, para retornar à fileira após o obstáculo. Na parede
+ou no fim, tenta alcançar outra fileira no lado escolhido e inverter a direção.
+Durante o contorno usa movimento lento, sem salto, para reduzir colisões. A
+busca local é limitada a 8 blocos; procura até 6 fileiras laterais. Não é um
+navegador para terrenos arbitrários, escadas ou grandes labirintos.
+
+Sem passagem, ou se o próprio desvio ficar travado, para e informa o motivo.
+Menus, desconexão e a tecla de parada continuam liberando todos os comandos.
+Não replanta nem reinicia automaticamente depois que acabam as batatas.
+
+Nove testes simulados do zigue-zague passaram, incluindo um obstáculo de feno
+de dois blocos de largura, colisão com a largura do jogador e parede no fim da
+fileira com retorno colhendo. Ainda falta validar os desvios no Minecraft real.
+
+```sh
+node macros/jsmacros/tests/batata-ziguezague.test.js
+```

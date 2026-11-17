@@ -1,14 +1,21 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
 function setup() {
-    const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [];
+    const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set();
     const s = { x: 0.5, z: 0.5, yaw: 0, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
-    function block(x, y, z) { return { getId: () => y === 64 && crops.has(`${x},${z}`) ? 'minecraft:potatoes' : 'minecraft:air' }; }
+    function ground(x, z) { return x >= -3 && x <= 1 && z >= -1 && z <= 9; }
+    function block(x, y, z) {
+        const solid = (y === 64 || y === 65) && solids.has(`${x},${z}`);
+        const id = solid ? 'minecraft:hay_block' : y === 63 && ground(x, z) ? 'minecraft:farmland'
+            : y === 64 && crops.has(`${x},${z}`) ? 'minecraft:potatoes' : 'minecraft:air';
+        return { getId: () => id, getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
+    }
     function ray() {
         const r = s.yaw * Math.PI / 180, dx = Math.round(-Math.sin(r)), dz = Math.round(Math.cos(r));
         for (let i = 0; i <= 1; i++) {
             const x = Math.floor(s.x) + dx * i, z = Math.floor(s.z) + dz * i;
+            if (solids.has(`${x},${z}`)) return { getId: () => 'minecraft:hay_block' };
             if (crops.has(`${x},${z}`)) return { getId: () => 'minecraft:potatoes', pos: `${x},${z}` };
         }
         return null;
@@ -24,21 +31,26 @@ function setup() {
         World: { isChunkLoaded: () => s.loaded, getBlock: block },
         KeyBind: { keyBind: (k, v) => keys.set(k, v) },
         Client: { waitTick: () => {
-            if (++s.ticks > 1000) throw Error('loop exceeded test bound');
-            if (keys.get('key.attack')) { const hit = ray(); if (hit) crops.delete(hit.pos); }
+            if (++s.ticks > 4000) throw Error('loop exceeded test bound');
+            if (keys.get('key.attack')) { const hit = ray(); if (hit) { assert.strictEqual(hit.getId(), 'minecraft:potatoes'); crops.delete(hit.pos); } }
             if (keys.get('key.forward') && s.move) {
                 const r = s.yaw * Math.PI / 180;
-                s.x += Math.round(-Math.sin(r)) * 0.1;
-                s.z += Math.round(Math.cos(r)) * 0.1;
+                const speed = keys.get('key.sneak') ? 0.07 : 0.1;
+                const nx = s.x - Math.sin(r) * speed, nz = s.z + Math.cos(r) * speed;
+                let collision = false;
+                for (const dx of [-0.3, 0.3]) for (const dz of [-0.3, 0.3]) {
+                    if (solids.has(`${Math.floor(nx + dx)},${Math.floor(nz + dz)}`)) collision = true;
+                }
+                if (!collision) { s.x = nx; s.z = nz; }
             }
             if (s.onTick) s.onTick();
         } }
     });
     run = () => vm.runInContext(source, ctx);
-    return { s, keys, crops, logs, turns, run };
+    return { s, keys, crops, logs, turns, solids, run };
 }
 function released(f) {
-    for (const k of ['key.forward', 'key.sprint', 'key.attack']) assert.strictEqual(f.keys.get(k), false);
+    for (const k of ['key.forward', 'key.sprint', 'key.attack', 'key.sneak']) assert.strictEqual(f.keys.get(k), false);
 }
 let count = 0;
 function test(name, fn) { fn(); count++; console.log('OK: ' + name); }
@@ -70,5 +82,22 @@ test('unloaded chunk aborts and releases controls', () => {
 test('does not attack non-potato blocks or walk away from an empty field', () => {
     const f = setup(); f.crops.clear(); f.run(); released(f);
     assert(f.s.ticks <= 4);
+});
+test('detours around a two-block hay obstacle and resumes harvesting', () => {
+    const f = setup();
+    for (const x of [0, -1]) for (const z of [3, 4]) {
+        f.solids.add(`${x},${z}`); f.crops.delete(`${x},${z}`);
+    }
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Contornando')));
+    assert.strictEqual(f.solids.size, 4);
+    assert.strictEqual(f.crops.size, 0);
+});
+test('wall at row end triggers lane change and return harvest', () => {
+    const f = setup();
+    for (let x = -3; x <= 1; x++) f.solids.add(`${x},8`);
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Parede/fim')));
+    assert.strictEqual(f.crops.size, 0);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
