@@ -4,7 +4,6 @@
     const RUN = "btos.batata.zig.run", STOP = "btos.batata.zig.stop";
     const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
     const PITCH = 55;
-    const SELL_INTERVAL = 1200; // Venda de reserva a cada 60 s, mesmo sem ler o aviso.
     const TURN_STEP = 10; // Graus por tick: viradas graduais.
     const ROW_WIDTH = 1; // Distancia entre fileiras em blocos.
     const SIDE = 1; // 1 = proxima fileira a direita inicial; -1 = a esquerda.
@@ -30,14 +29,14 @@
     const side = { x: -forward.z * SIDE, z: forward.x * SIDE };
     const sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
     let phase = "row", destination = null, end = null;
-    let route = [], routeIndex = 0, reverseAfterRoute = false;
+    let route = [], routeIndex = 0, routeOrigin = null, reverseAfterRoute = false;
     let blockedTicks = 0, blockedKey = "";
     let retreat = null, retreatCount = 0, lastRetreat = null;
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
     let farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
     let lastSafe = null, climb = null, descent = null;
     const recoveryVisits = new Map();
-    let sale = null, saleCooldown = 0, hudReader = null, sinceSale = 0;
+    let sale = null, saleCooldown = 0, hudReader = null;
     const listeners = [];
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
@@ -53,7 +52,7 @@
         if (text === null || text === undefined || GlobalVars.getString(RUN) !== id) return;
         const message = plain(text.getString());
         const state = GlobalVars.getString(SALE_STATE);
-        if (state === "idle" && /(?:armazem|inventario|deposito)\s+(?:esta\s+)?cheio/.test(message)) GlobalVars.putString(SALE_REQUEST, id);
+        if (state === "idle" && /armazem\s+(?:esta\s+)?cheio/.test(message)) GlobalVars.putString(SALE_REQUEST, id);
         if (state === "confirm" && /batatas?/.test(message)
                 && /vendid|vendeu|venda (?:realizada|efetuada|concluida)/.test(message)
                 && !/nao |erro|falh|insuficiente/.test(message)) GlobalVars.putString(SALE_ACK, id);
@@ -72,13 +71,20 @@
         }
         return matches.length === 1 ? matches[0] : -1;
     }
-    function emptyWarehouse(inv) {
+    function warehouseQuantity(inv, preferredSlot) {
         const slot = sellButton(inv);
-        if (slot < 0) return false;
-        for (const line of inv.getSlot(slot).getLore()) {
-            if (/quantidade\s*:\s*0(?:[.,]0+)?\s+batatas?\b/.test(plain(line.getString()))) return true;
+        const target = slot >= 0 ? slot : preferredSlot;
+        if (target === null || target === undefined || target < 0) return null;
+        const item = inv.getSlot(target);
+        if (item.isEmpty()) return null;
+        const lines = [plain(item.getName().getString())];
+        for (const line of item.getLore()) lines.push(plain(line.getString()));
+        for (const line of lines) {
+            if (/armazem vazio|nenhuma batata|sem batatas/.test(line)) return 0;
+            const match = /quantidade\s*:\s*([0-9][0-9.,]*)\s+batatas?\b/.exec(line);
+            if (match) return Number(match[1].replace(/[.,]/g, ""));
         }
-        return false;
+        return null;
     }
 
     function prepareHudReader() {
@@ -147,7 +153,7 @@
             const here = queue[i];
             if (here.x === gx && here.z === gz) {
                 const result = [];
-                for (let at = i; at >= 0; at = queue[at].previous) {
+                for (let at = i; queue[at].previous >= 0; at = queue[at].previous) {
                     result.unshift({ x: queue[at].x + 0.5, z: queue[at].z + 0.5 });
                 }
                 return result;
@@ -163,15 +169,24 @@
     }
     function findRoute(p, preferNextRow) {
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ()), cy = farmLevel;
-        // Primeiro tenta retornar a mesma fileira depois do obstaculo.
-        for (let d = preferNextRow ? DETOUR_RADIUS + 1 : 2; d <= DETOUR_RADIUS; d++) {
-            const gx = bx + forward.x * d, gz = bz + forward.z * d;
-            if (!crop(gx, cy, gz)) continue;
-            const path = pathTo(bx, bz, gx, gz, cy);
-            if (path !== null) {
-                route = path; routeIndex = 0; reverseAfterRoute = false; phase = "route";
-                Chat.log("[Batata] Contornando obstaculo para retomar a fileira.");
-                return true;
+        // Obstaculo no meio: somente desloca para uma lateral livre e segue em frente.
+        if (!preferNextRow) {
+            for (const sign of [1, -1]) {
+                const path = [];
+                for (let offset = 1; offset <= 3; offset++) {
+                    const gx = bx + side.x * sign * offset, gz = bz + side.z * sign * offset;
+                    if (!walkable(gx, cy, gz)) break;
+                    path.push({ x: gx + 0.5, z: gz + 0.5 });
+                    let ahead = false;
+                    for (let d = 1; d <= SCAN; d++) {
+                        if (crop(gx + forward.x * d, cy, gz + forward.z * d)) ahead = true;
+                    }
+                    if (!ahead || !walkable(gx + forward.x, cy, gz + forward.z)) continue;
+                    route = path; routeIndex = 0; routeOrigin = { x: p.getX(), z: p.getZ() };
+                    reverseAfterRoute = false; phase = "route";
+                    Chat.log("[Batata] Obstaculo: desviando para a lateral e seguindo em frente.");
+                    return true;
+                }
             }
         }
         // Parede/fim: procura outra fileira, ainda do lado escolhido, e inverte.
@@ -186,7 +201,7 @@
                 if (!potatoes) continue;
                 const path = pathTo(bx, bz, gx, gz, cy);
                 if (path !== null) {
-                    route = path; routeIndex = 0; reverseAfterRoute = true; phase = "route";
+                    route = path; routeIndex = 0; routeOrigin = { x: p.getX(), z: p.getZ() }; reverseAfterRoute = true; phase = "route";
                     Chat.log("[Batata] Parede/fim: passando para outra fileira e voltando.");
                     return true;
                 }
@@ -253,8 +268,8 @@
         listeners.push(JsMacros.on("Title", JavaWrapper.methodToJava(e => receive(e.message))));
         listeners.push(JsMacros.on("RecvMessage", JavaWrapper.methodToJava(e => receive(e.text))));
         try { hudReader = prepareHudReader(); }
-        catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; venda periodica ativa."); }
-        Chat.log("[Batata] Zigue-zague v3: venda a cada 60s, descida de degrau e viradas suaves. W + Ctrl. Aperte a mesma tecla para parar.");
+        catch (error) { Chat.log("[Batata] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
+        Chat.log("[Batata] Zigue-zague v4: vende so cheio, fecha menu, desvia de lado e vira direto. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             const p = Player.getPlayer();
             if (!p) { reason = "desconectou"; break; }
@@ -263,10 +278,6 @@
                 catch (error) { hudReader = null; Chat.log("[Batata] Leitura direta do HUD falhou; eventos continuam ativos."); }
             }
             if (saleCooldown > 0 && --saleCooldown === 0) GlobalVars.putString(SALE_STATE, "idle");
-            if (sale === null && ++sinceSale >= SELL_INTERVAL && saleCooldown === 0) {
-                GlobalVars.putString(SALE_REQUEST, id);
-                Chat.log("[Batata] Venda periodica de reserva: enviando /farms.");
-            }
             if (sale === null && GlobalVars.getString(SALE_REQUEST) === id) {
                 releaseKeys();
                 sale = { stage: "menu", ticks: 0, x: p.getX(), y: p.getY(), z: p.getZ() };
@@ -287,28 +298,37 @@
                         const slot = sellButton(inv);
                         if (slot >= 0) {
                             if (!inv.getHeld().isEmpty()) { reason = "item no cursor; venda cancelada sem clique"; break; }
-                            sale.stage = "confirm"; sale.ticks = 0;
+                            sale.slot = slot; sale.before = warehouseQuantity(inv, slot);
+                            sale.confirmed = false; sale.stage = "confirm"; sale.ticks = 0;
                             GlobalVars.putString(SALE_STATE, "confirm");
                             inv.click(slot);
                             Chat.log("[Batata] Clique em Vender Batatas enviado; aguardando confirmacao.");
                         }
                     }
-                    if (sale.ticks >= 100) { reason = "menu ou botao Vender Batatas nao encontrado"; break; }
+                    if (sale.ticks >= 100) {
+                        if (inv !== null) inv.close();
+                        reason = "botao Vender Batatas nao encontrado; menu fechado"; break;
+                    }
                 } else if (sale.stage === "confirm") {
-                    if (GlobalVars.getString(SALE_ACK) === id || (inv !== null && emptyWarehouse(inv))) {
+                    const after = inv === null ? null : warehouseQuantity(inv, sale.slot);
+                    sale.confirmed = GlobalVars.getString(SALE_ACK) === id || after === 0
+                        || (sale.before !== null && after !== null && after < sale.before);
+                    // Alguns servidores nao atualizam a descricao nem enviam recibo.
+                    // Fecha apos o clique, sem chamar a venda de confirmada nesses casos.
+                    if (sale.confirmed || sale.ticks >= 20) {
                         if (inv !== null) inv.close();
                         sale.stage = "close"; sale.ticks = 0;
-                    } else if (sale.ticks >= 100) {
-                        reason = "venda sem confirmacao; colheita pausada"; break;
                     }
                 } else if (Hud.getOpenScreen() === null) {
                     if (Math.hypot(p.getX() - sale.x, p.getZ() - sale.z) > 1.5 || Math.abs(p.getY() - sale.y) > 0.3) {
                         reason = "posicao mudou durante a venda; reinicie na fileira"; break;
                     }
-                    sale = null; saleCooldown = 100; sinceSale = 0;
+                    const confirmed = sale.confirmed;
+                    sale = null; saleCooldown = 100;
                     GlobalVars.putString(SALE_ACK, ""); GlobalVars.putString(SALE_STATE, "cooldown");
                     idle = 0; checkpoint = { x: p.getX(), z: p.getZ() };
-                    Chat.log("[Batata] Venda confirmada; continuando a colheita.");
+                    Chat.log(confirmed ? "[Batata] Venda confirmada; menu fechado e colheita retomada."
+                        : "[Batata] Menu fechado apos clicar em Vender Batatas; retomando sem confirmacao do saldo.");
                 } else if (sale.ticks >= 40) { reason = "menu de venda nao fechou"; break; }
                 Client.waitTick();
                 continue;
@@ -463,7 +483,13 @@
                 } else setKeys(facingRow, facingRow);
             } else if (phase === "route") {
                 const point = route[routeIndex];
-                if (Math.hypot(point.x - x, point.z - z) <= 0.12) {
+                const origin = routeIndex === 0 ? routeOrigin : route[routeIndex - 1];
+                const dx = point.x - origin.x, dz = point.z - origin.z;
+                const length = Math.hypot(dx, dz);
+                const along = length > 0 ? ((point.x - x) * dx + (point.z - z) * dz) / length : 0;
+                const across = length > 0 ? Math.abs((x - origin.x) * dz - (z - origin.z) * dx) / length : Infinity;
+                const passed = length > 0 && along <= 0.12 && along >= -0.4 && across <= 0.2;
+                if (Math.hypot(point.x - x, point.z - z) <= 0.12 || passed) {
                     routeIndex++;
                     setKeys(false, false);
                     if (routeIndex >= route.length) {

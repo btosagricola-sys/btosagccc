@@ -2,9 +2,9 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
 function setup(script = source) {
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
-    function ground(x, z) { return x >= -3 && x <= 1 && z >= -1 && z <= 9; }
+    function ground(x, z) { return (s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
     function block(x, y, z) {
         const solid = (y === 64 || y === 65) && (solids.has(`${x},${z}`) || (s.hideSides && x !== 0));
         const cropY = s.lowerFromZ !== null && z >= s.lowerFromZ ? 63 : 64;
@@ -34,11 +34,11 @@ function setup(script = source) {
         getSlots: section => { assert.strictEqual(section, 'container'); return Array.from({length: 54}, (_, i) => i); },
         getSlot: slot => ({
             isEmpty: () => false,
-            getName: () => text(slot === s.button || slot === 99 || (s.duplicate && slot === 21) ? '§aVender Batatas' : 'Outro item'),
+            getName: () => text(slot === s.button && s.emptyButton ? 'Armazem vazio' : slot === s.button || slot === 99 || (s.duplicate && slot === 21) ? '§aVender Batatas' : 'Outro item'),
             getLore: () => [text('Quantidade: ' + s.quantity + ' batatas')]
         }),
         click: slot => { clicks.push(slot); if (s.onClick) s.onClick(); },
-        close: () => { s.menu = null; }
+        close: () => { s.closed++; s.menu = null; }
     };
     const hud = { getClass: () => 'hud' };
     Object.defineProperties(hud, {
@@ -120,15 +120,15 @@ test('does not attack non-potato blocks or walk away from an empty field', () =>
     const f = setup(); f.crops.clear(); f.run(); released(f);
     assert(f.s.ticks <= 4);
 });
-test('detours around a two-block hay obstacle and resumes harvesting', () => {
+test('sidesteps a two-block hay obstacle and continues ahead without rejoining', () => {
     const f = setup();
     for (const x of [0, -1]) for (const z of [3, 4]) {
         f.solids.add(`${x},${z}`); f.crops.delete(`${x},${z}`);
     }
     f.run(); released(f);
-    assert(f.logs.some(t => t.includes('Contornando')));
+    assert(f.logs.some(t => t.includes('desviando para a lateral')));
     assert.strictEqual(f.solids.size, 4);
-    assert.strictEqual(f.crops.size, 0);
+    for (let z = 5; z <= 7; z++) assert(!f.crops.has(`-2,${z}`));
 });
 test('wall at row end triggers lane change and return harvest', () => {
     const f = setup();
@@ -195,13 +195,14 @@ test('chat fallback confirms server sale even when menu closes on click', () => 
     assert(f.logs.some(t => t.includes('Venda confirmada')));
     assert.strictEqual(f.crops.size, 0);
 });
-test('unconfirmed sale times out without returning to harvesting', () => {
+test('unconfirmed sale closes its menu after one second and resumes without claiming success', () => {
     const f = salesFixture();
     f.s.onClick = () => { f.s.menu = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.clicks, [20]);
-    assert(f.logs.some(t => t.includes('venda sem confirmacao')));
-    assert(f.crops.size > 0);
+    assert(f.logs.some(t => t.includes('sem confirmacao do saldo')));
+    assert.strictEqual(f.s.menu, null);
+    assert.strictEqual(f.crops.size, 0);
 });
 test('unexpected menu is left untouched', () => {
     const f = salesFixture(); f.s.menuTitle = 'Loja';
@@ -246,7 +247,7 @@ test('small height oscillations over farmland do not invent an obstacle', () => 
     f.s.onTick = () => { f.s.y = f.s.ticks % 2 ? 64.03 : 63.9375; };
     f.run(); released(f);
     assert.strictEqual(f.crops.size, 0);
-    assert(!f.logs.some(t => t.includes('Contornando')));
+    assert(!f.logs.some(t => t.includes('desviando para a lateral')));
     assert(!f.logs.some(t => t.includes('passagem bloqueada')));
 });
 test('height oscillations do not invalidate a real obstacle detour', () => {
@@ -256,8 +257,8 @@ test('height oscillations do not invalidate a real obstacle detour', () => {
     }
     f.s.onTick = () => { f.s.y = f.s.ticks % 2 ? 64.03 : 63.9375; };
     f.run(); released(f);
-    assert(f.logs.some(t => t.includes('Contornando')));
-    assert.strictEqual(f.crops.size, 0);
+    assert(f.logs.some(t => t.includes('desviando para a lateral')));
+    for (let z = 5; z <= 7; z++) assert(!f.crops.has(`-2,${z}`));
     assert(!f.logs.some(t => t.includes('passagem bloqueada')));
 });
 test('all navigation including real detours keeps sneak released', () => {
@@ -267,7 +268,7 @@ test('all navigation including real detours keeps sneak released', () => {
     }
     f.run(); released(f);
     assert(!f.keyHistory.some(([key, down]) => key === 'key.sneak' && down));
-    assert.strictEqual(f.crops.size, 0);
+    assert(f.logs.some(t => t.includes('desviando para a lateral')));
 });
 test('no local passage triggers a short backward movement then retries harvest', () => {
     const f = setup(); f.s.hideSides = true;
@@ -276,8 +277,9 @@ test('no local passage triggers a short backward movement then retries harvest',
     f.run(); released(f);
     assert(f.logs.some(t => t.includes('recuando')));
     assert(f.keyHistory.some(([key, down]) => key === 'key.back' && down));
-    assert(f.logs.some(t => t.includes('Contornando') || t.includes('Parede/fim')));
-    assert.strictEqual(f.crops.size, 0);
+    assert(f.logs.some(t => t.includes('desviando para a lateral') || t.includes('Parede/fim')));
+    assert(!f.crops.has('-1,7'));
+    assert(!f.crops.has('-2,0'));
 });
 test('manual stop during retreat releases the backward key', () => {
     const f = setup(); f.s.hideSides = true;
@@ -305,17 +307,13 @@ test('direct actionbar polling detects full warehouse without chat events', () =
     assert.deepStrictEqual(f.commands, ['/farms']);
     assert(f.logs.some(t => t.includes('Venda confirmada')));
 });
-test('periodic fallback sends farms and resumes even with no full notice', () => {
-    // Accelerate the scheduler only in this test; production remains 1200 ticks.
-    const f = setup(source.replace('SELL_INTERVAL = 1200', 'SELL_INTERVAL = 12'));
-    f.s.onSay = () => { f.s.menu = {}; };
-    f.s.onClick = () => { f.s.quantity = '0'; };
-    f.s.onTick = () => { if (f.logs.some(t => t.includes('Venda confirmada'))) f.run(); };
+test('does not sell merely because sixty seconds elapsed without a full notice', () => {
+    const f = setup(); f.s.maxZ = 162; f.crops.clear();
+    for (let z = 0; z <= 160; z++) f.crops.add(`0,${z}`);
     f.run(); released(f);
-    assert.deepStrictEqual(f.commands, ['/farms']);
-    assert.deepStrictEqual(f.commandWait, [true]);
-    assert.deepStrictEqual(f.clicks, [20]);
-    assert(f.logs.some(t => t.includes('/farms enviado')));
+    assert(f.s.ticks > 1200);
+    assert.deepStrictEqual(f.commands, []);
+    assert.strictEqual(f.crops.size, 0);
 });
 test('turns have a maximum ten-degree yaw step', () => {
     const f = setup(); f.run(); released(f);
@@ -337,12 +335,44 @@ test('deliberately descends a supported one-block potato step without retreating
     assert(!f.logs.some(t => t.includes('recuando') || t.includes('Caiu um degrau')));
     assert(f.s.y < 63);
 });
-test('inventory full wording also triggers the requested farms command', () => {
+test('only warehouse full triggers selling, not unrelated inventory full', () => {
     const f = setup();
     f.s.onTick = () => { if (f.s.ticks === 1) f.emit('Title', 'Inventário cheio!'); };
     f.s.onSay = () => { f.s.menu = {}; };
     f.s.onClick = () => { f.s.quantity = '0'; };
     f.run(); released(f);
-    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert.deepStrictEqual(f.commands, []);
+});
+test('ordinary row turns use exactly the necessary arc in either field direction', () => {
+    for (const mirrored of [false, true]) {
+        const script = mirrored ? source.replace('const SIDE = 1;', 'const SIDE = -1;') : source;
+        const f = setup(script); f.s.mirror = mirrored;
+        if (mirrored) {
+            f.crops.clear();
+            for (let x = 0; x <= 2; x++) for (let z = 0; z <= 7; z++) f.crops.add(`${x},${z}`);
+        }
+        f.run(); released(f);
+        const total = f.lookSteps.reduce((sum, d) => sum + Math.abs(d), 0);
+        assert(total >= 359.9 && total <= 360.1, 'extra rotation: ' + total);
+        assert.strictEqual(f.crops.size, 0);
+    }
+});
+test('unchanged sale menu still closes after click and harvesting resumes', () => {
+    const f = salesFixture();
+    // Simulate a server that keeps stale quantity text and sends no receipt.
+    f.run(); released(f);
+    assert.deepStrictEqual(f.clicks, [20]);
+    assert.strictEqual(f.s.closed, 1);
+    assert.strictEqual(f.s.menu, null);
+    assert.strictEqual(f.crops.size, 0);
+    assert(f.logs.some(t => t.includes('sem confirmacao do saldo')));
+});
+test('sold button changing to warehouse empty is recognized before closing', () => {
+    const f = salesFixture();
+    f.s.onClick = () => { f.s.emptyButton = true; };
+    f.run(); released(f);
+    assert.strictEqual(f.s.closed, 1);
+    assert(f.logs.some(t => t.includes('Venda confirmada')));
+    assert.strictEqual(f.crops.size, 0);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
