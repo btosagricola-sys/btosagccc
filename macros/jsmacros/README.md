@@ -1,11 +1,11 @@
 # Macro de batata, cenoura e fungo do Nether — JsMacros / Minecraft 1.21.4
 
-## Instalar a v13
+## Instalar a v14
 
 Pare a macro anterior e substitua **todo** o código por `batata-ziguezague.js`.
 `batata-ziguezague.txt` é a mesma versão como documento de texto, para copiar e
 colar no editor do JsMacros. Vincule a uma tecla livre (ex.: F6), gatilho ao
-pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v13`
+pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v14`
 no chat. O nome antigo do arquivo foi mantido para facilitar a atualização.
 
 ## Padrão: zigue-zague de ida e volta pelo percurso inteiro
@@ -177,3 +177,29 @@ Nether na areia das almas, fungos carmesim/distorcido no nicélio, venda, nomes 
 menu/botão, recusa de botão de outra cultura e calibração de altura sobre fungos.
 Não houve teste no Minecraft real. Essa extensão de culturas não diagnostica
 nem estabelece correção do lag informado anteriormente.
+
+
+## v14: saída local quando não consegue retornar no canto
+
+Se a célula de retorno direto estiver bloqueada, a macro não depende somente
+dela. Procura pontos de saída a 2–4 blocos, no mesmo nível, com apoio, espaço
+para o corpo e acesso às plantas. Avalia um conjunto limitado de candidatos e
+até oito rotas. Durante a saída o ataque permanece solto; ao chegar ao ponto
+livre, retoma o movimento ao longo das fileiras. Não tenta atravessar parede,
+descer ou saltar nessa manobra.
+
+Destinos de saída tentados recentemente são evitados por cerca de 10 s e os
+registros são limitados para não crescer sem limite. O modo de espera também
+prioriza essa saída após falhas de passagem/retorno. Se continuar sem acesso,
+registra os blocos do local e mantém as verificações do modo contínuo.
+
+As mensagens `Saindo do canto por passagem livre no mesmo nivel` e
+`Saiu do canto; retomando a colheita` identificam a tentativa e a chegada.
+Se o canto real ainda falhar, envie essas mensagens ou `Local da espera`, com
+os IDs de pés, cabeça e chão. A navegação considera blocos; entidades e regras
+específicas do servidor ainda podem impedir um caminho aparentemente livre.
+
+A sintaxe e 73 testes simulados passaram. Os dois novos casos cobrem um canto
+com fungo do Nether/areia das almas e retorno bloqueado, incluindo a parada
+manual durante a saída. A geometria foi simulada; não confirma ainda o canto
+real das imagens nem resolve o lag anteriormente relatado.

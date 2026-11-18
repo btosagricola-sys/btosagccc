@@ -403,7 +403,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v13 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v14 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -781,5 +781,35 @@ test('nether wart crop is not mistaken for the starting support block', () => {
     f.run(); released(f);
     assert(f.logs.some(t => t.includes('Altura inicial corrigida')));
     assert.strictEqual(f.crops.size, 0);
+});
+function closedCornerFixture() {
+    const f = setup(source, true, false, true);
+    f.s.cropId = 'minecraft:nether_wart'; f.s.soilId = 'minecraft:soul_sand'; f.s.y = 63.875;
+    f.crops.clear();
+    for (const x of [0, -1, -2]) f.crops.add(`${x},0`);
+    f.solids.add('0,1');
+    for (const x of [0, -1, -2]) f.solids.add(`${x},-1`);
+    return f;
+}
+test('when direct reverse is blocked, escapes the closed wart corner on the same level', () => {
+    const f = closedCornerFixture();
+    f.s.onTick = () => {
+        assert.strictEqual(f.s.y, 63.875);
+        if (f.logs.some(t => t.includes('Saiu do canto'))) f.run();
+    };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Saindo do canto')));
+    assert(f.logs.some(t => t.includes('Saiu do canto')));
+    assert(f.s.x < -1);
+    const gx = Math.floor(f.s.x), gz = Math.floor(f.s.z);
+    assert(!f.solids.has(`${gx},${gz}`));
+    assert(!f.solids.has(`${gx},${gz + 1}`) || !f.solids.has(`${gx},${gz - 1}`));
+    assert.strictEqual(f.solids.size, 4);
+});
+test('manual stop remains responsive during a corner escape', () => {
+    const f = closedCornerFixture();
+    f.s.onTick = () => { if (f.logs.some(t => t.includes('Saindo do canto'))) f.run(); };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Saindo do canto')));
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

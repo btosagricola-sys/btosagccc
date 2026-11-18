@@ -51,6 +51,8 @@
     let lastSafe = null, climb = null;
     const recoveryVisits = new Map();
     const boundaryMisses = new Map();
+    const escapeVisits = new Map();
+    let cornerExitActive = false;
     let sale = null, saleCooldown = 0, hudReader = null;
     let lastHudNotice = "";
     const listeners = [];
@@ -158,7 +160,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v13 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v14 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -336,11 +338,12 @@
         if (!CONTINUOUS) return false;
         releaseKeys();
         phase = "waiting"; waitingTicks = 0;
-        route = []; retreat = null; climb = null; sale = null;
+        route = []; retreat = null; climb = null; sale = null; cornerExitActive = false;
         saleCooldown = 100; GlobalVars.putString(SALE_STATE, "cooldown");
         if (note !== lastPauseNote) {
             lastPauseNote = note;
             Chat.log("[Colheita] Aguardando recuperacao automatica: " + note);
+            Chat.log("[Colheita] Local da espera: " + describeBlock(Math.floor(p.getX()), Math.floor(p.getZ())));
         }
         return true;
     }
@@ -445,9 +448,47 @@
         }
         return false;
     }
+    function escapeCorner(p) {
+        if (Math.abs(p.getY() - farmY) > 0.2) return false;
+        const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+        const candidates = [];
+        for (let r = 2; r <= 4; r++) {
+            for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                const gx = bx + dx, gz = bz + dz, key = gx + "," + gz;
+                if (cycle - (escapeVisits.get(key) || -1000) < 200 || !walkable(gx, farmLevel, gz)) continue;
+                const reverse = walkable(gx - forward.x, farmLevel, gz - forward.z);
+                if (!reverse && !walkable(gx + forward.x, farmLevel, gz + forward.z)) continue;
+                let clearance = 0, plants = crop(gx, farmLevel, gz) ? 1 : 0;
+                for (const d of [{x:1,z:0},{x:-1,z:0},{x:0,z:1},{x:0,z:-1}]) {
+                    if (walkable(gx + d.x, farmLevel, gz + d.z)) clearance++;
+                    if (crop(gx + d.x, farmLevel, gz + d.z)) plants++;
+                }
+                if (clearance < 2 || plants === 0) continue;
+                const away = -(dx * forward.x + dz * forward.z);
+                candidates.push({ x: gx, z: gz, key: key, reverse: reverse,
+                    score: clearance * 5 + plants + away * 2 - r });
+            }
+        }
+        candidates.sort((a, b) => b.score - a.score);
+        for (const goal of candidates.slice(0, 8)) {
+            const path = pathTo(bx, bz, goal.x, goal.z, farmLevel);
+            if (path === null || path.length === 0) continue;
+            escapeVisits.set(goal.key, cycle);
+            if (escapeVisits.size > 128) escapeVisits.delete(escapeVisits.keys().next().value);
+            releaseKeys(); route = path; routeIndex = 0;
+            routeOrigin = { x: p.getX(), z: p.getZ() };
+            reverseAfterRoute = goal.reverse; cornerExitActive = true;
+            phase = "route"; retreat = null; idle = 0; resetBlocked();
+            checkpoint = { x: p.getX(), z: p.getZ() };
+            Chat.log("[Colheita] Saindo do canto por passagem livre no mesmo nivel.");
+            return true;
+        }
+        return false;
+    }
     function reverseSameRow(p, note) {
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
-        if (!walkable(bx - forward.x, farmLevel, bz - forward.z)) return false;
+        if (!walkable(bx - forward.x, farmLevel, bz - forward.z)) return escapeCorner(p);
         releaseKeys();
         yaw += 180; forward = direction(yaw);
         phase = "turnback"; missing = 0; end = null;
@@ -485,7 +526,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v13: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v14: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
@@ -579,10 +620,12 @@
                             side.x = -side.x; side.z = -side.z;
                             sideYaw = Math.atan2(-side.x, side.z) * 180 / Math.PI;
                         }
-                        if ((REVERSE_FIELD_SWEEP && (fieldMin !== null ? reverseFieldBoundary(p, false) : findNearbyWork(p)))
+                        if ((/bloquead|sem retorno|sem passagem/.test(lastPauseNote) && escapeCorner(p))
+                                || (REVERSE_FIELD_SWEEP && (fieldMin !== null ? reverseFieldBoundary(p, false) : findNearbyWork(p)))
                                 || (!REVERSE_FIELD_SWEEP && RETURN_SAME_ROW && resumeSameRow(p))
                                 || (!REVERSE_FIELD_SWEEP && !RETURN_SAME_ROW && (findRoute(p, true) || findNearbyWork(p)))) {
                             idle = 0; checkpoint = { x: x, z: z };
+                            lastPauseNote = "";
                             Chat.log("[Colheita] Passagem/batatas encontradas; retomando automaticamente.");
                         }
                     }
@@ -751,6 +794,10 @@
                     if (routeIndex >= route.length) {
                         if (reverseAfterRoute) { yaw += 180; forward = direction(yaw); }
                         phase = "row"; end = null; missing = 0;
+                        if (cornerExitActive) {
+                            cornerExitActive = false;
+                            Chat.log("[Colheita] Saiu do canto; retomando a colheita.");
+                        }
                     }
                 } else if (!walkable(Math.floor(point.x), farmLevel, Math.floor(point.z))) {
                     setKeys(false, false);
