@@ -403,7 +403,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v14 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v15 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -811,5 +811,23 @@ test('manual stop remains responsive during a corner escape', () => {
     f.s.onTick = () => { if (f.logs.some(t => t.includes('Saindo do canto'))) f.run(); };
     f.run(); released(f);
     assert(f.logs.some(t => t.includes('Saindo do canto')));
+});
+test('repeated failed corner recovery blacklists the region and exits when movement clears', () => {
+    const f = closedCornerFixture(); f.s.move = false;
+    let escapedAt = null;
+    f.s.onTick = () => {
+        if (f.s.ticks >= 800) f.s.move = true;
+        const avoided = f.logs.some(t => t.includes('Ciclo no canto detectado'));
+        const outside = Math.abs(f.s.x - 0.5) > 1.5 || Math.abs(f.s.z - 0.5) > 1.5;
+        if (avoided && outside && escapedAt === null) escapedAt = f.s.ticks;
+        if (escapedAt !== null) {
+            assert(!(Math.abs(f.s.x - 0.5) < 1 && Math.abs(f.s.z - 0.5) < 1), 'reentered blocked corner');
+            if (f.s.ticks - escapedAt >= 80) f.run();
+        }
+    };
+    f.run(); released(f);
+    assert(f.logs.some(t => t.includes('Ciclo no canto detectado')));
+    assert(escapedAt !== null);
+    assert.strictEqual(f.solids.size, 4);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

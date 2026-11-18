@@ -1,11 +1,11 @@
 # Macro de batata, cenoura e fungo do Nether — JsMacros / Minecraft 1.21.4
 
-## Instalar a v14
+## Instalar a v15
 
 Pare a macro anterior e substitua **todo** o código por `batata-ziguezague.js`.
 `batata-ziguezague.txt` é a mesma versão como documento de texto, para copiar e
 colar no editor do JsMacros. Vincule a uma tecla livre (ex.: F6), gatilho ao
-pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v14`
+pressionar, sem repetição. A mesma tecla inicia e para. Confirme `Zigue-zague v15`
 no chat. O nome antigo do arquivo foi mantido para facilitar a atualização.
 
 ## Padrão: zigue-zague de ida e volta pelo percurso inteiro
@@ -203,3 +203,27 @@ A sintaxe e 73 testes simulados passaram. Os dois novos casos cobrem um canto
 com fungo do Nether/areia das almas e retorno bloqueado, incluindo a parada
 manual durante a saída. A geometria foi simulada; não confirma ainda o canto
 real das imagens nem resolve o lag anteriormente relatado.
+
+
+## v15: não reentrar imediatamente no canto que repete falhas
+
+A recuperação registra falhas e tentativas de saída próximas. Após três
+ocorrências, marca a região temporariamente por 1200 ciclos (aproximadamente
+60 segundos). Os destinos de rotas não podem ficar dentro dela; a busca de
+caminho permite sair se o jogador já estiver dentro, mas não planeja reentrar
+após sair. O avanço normal também verifica esse limite antes de caminhar.
+
+A saída pode buscar um ponto até oito blocos distante quando a região já foi
+marcada, mantendo o nível de apoio e os limites de rotas. Os registros de
+falhas/regiões são limitados para não crescer sem limite. A mensagem
+`Ciclo no canto detectado; evitando essa regiao por 60 segundos` identifica
+esse mecanismo. Sem saída válida, aguarda; não atravessa parede nem desce.
+
+A sintaxe e 74 testes simulados passaram. A regressão nova força falhas de
+movimento por várias tentativas em um canto com fungo do Nether, libera o
+movimento, verifica a saída e a ausência de reentrada imediata. Esse teste
+não reproduz o servidor real nem garante a resolução do canto das imagens.
+
+O usuário informou que não viu a mensagem da versão anterior. Confirme
+`Zigue-zague v15` ao iniciar, substituindo o código inteiro com a macro anterior
+parada. Sem essa confirmação, não há evidência de qual versão está rodando.

@@ -52,6 +52,7 @@
     const recoveryVisits = new Map();
     const boundaryMisses = new Map();
     const escapeVisits = new Map();
+    const cornerFailures = [], avoidedCorners = [];
     let cornerExitActive = false;
     let sale = null, saleCooldown = 0, hudReader = null;
     let lastHudNotice = "";
@@ -160,7 +161,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v14 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v15 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -244,8 +245,28 @@
         return "[" + cx + "," + farmLevel + "," + cz + "] pes=" + id(farmLevel)
             + " cabeca=" + id(farmLevel + 1) + " chao=" + id(farmLevel - 1);
     }
+    function avoidedCorner(cx, cz) {
+        return avoidedCorners.some(c => cycle < c.until
+            && Math.abs(cx + 0.5 - c.x) <= 1.25 && Math.abs(cz + 0.5 - c.z) <= 1.25);
+    }
+    function noteCornerFailure(p) {
+        const x = Math.floor(p.getX()) + 0.5, z = Math.floor(p.getZ()) + 0.5;
+        let item = cornerFailures.find(c => Math.hypot(c.x - x, c.z - z) <= 2.5 && cycle - c.last < 1200);
+        if (!item) {
+            item = { x: x, z: z, count: 0, last: -1 };
+            cornerFailures.push(item);
+            if (cornerFailures.length > 32) cornerFailures.shift();
+        }
+        if (item.last === cycle) return;
+        item.last = cycle; item.count++;
+        if (item.count >= 3 && !avoidedCorner(Math.floor(item.x), Math.floor(item.z))) {
+            avoidedCorners.push({ x: item.x, z: item.z, until: cycle + 1200 });
+            if (avoidedCorners.length > 16) avoidedCorners.shift();
+            Chat.log("[Colheita] Ciclo no canto detectado; evitando essa regiao por 60 segundos.");
+        }
+    }
     function pathTo(sx, sz, gx, gz, cy) {
-        if (!walkable(gx, cy, gz)) return null;
+        if (!walkable(gx, cy, gz) || avoidedCorner(gx, gz)) return null;
         const queue = [{ x: sx, z: sz, previous: -1 }], seen = new Set([sx + "," + sz]);
         const directions = [side, { x: -side.x, z: -side.z }, forward, { x: -forward.x, z: -forward.z }];
         for (let i = 0; i < queue.length; i++) {
@@ -260,7 +281,8 @@
             for (const d of directions) {
                 const nx = here.x + d.x, nz = here.z + d.z, key = nx + "," + nz;
                 if (Math.abs(nx - sx) > DETOUR_RADIUS || Math.abs(nz - sz) > DETOUR_RADIUS
-                        || seen.has(key) || !walkable(nx, cy, nz)) continue;
+                        || seen.has(key) || !walkable(nx, cy, nz)
+                        || (avoidedCorner(nx, nz) && !avoidedCorner(here.x, here.z))) continue;
                 seen.add(key); queue.push({ x: nx, z: nz, previous: i });
             }
         }
@@ -274,7 +296,7 @@
                 const path = [];
                 for (let offset = 1; offset <= 3; offset++) {
                     const gx = bx + side.x * sign * offset, gz = bz + side.z * sign * offset;
-                    if (!walkable(gx, cy, gz)) break;
+                    if (!walkable(gx, cy, gz) || avoidedCorner(gx, gz)) break;
                     path.push({ x: gx + 0.5, z: gz + 0.5 });
                     let ahead = false;
                     for (let d = 1; d <= SCAN; d++) {
@@ -336,6 +358,7 @@
     }
     function pauseWork(note, p) {
         if (!CONTINUOUS) return false;
+        if (/bloquead|sem retorno|sem passagem/.test(note)) noteCornerFailure(p);
         releaseKeys();
         phase = "waiting"; waitingTicks = 0;
         route = []; retreat = null; climb = null; sale = null; cornerExitActive = false;
@@ -451,12 +474,14 @@
     function escapeCorner(p) {
         if (Math.abs(p.getY() - farmY) > 0.2) return false;
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+        noteCornerFailure(p);
         const candidates = [];
-        for (let r = 2; r <= 4; r++) {
+        const range = avoidedCorner(bx, bz) ? DETOUR_RADIUS : 4;
+        for (let r = 2; r <= range; r++) {
             for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
                 if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
                 const gx = bx + dx, gz = bz + dz, key = gx + "," + gz;
-                if (cycle - (escapeVisits.get(key) || -1000) < 200 || !walkable(gx, farmLevel, gz)) continue;
+                if (cycle - (escapeVisits.get(key) || -1000) < 200 || !walkable(gx, farmLevel, gz) || avoidedCorner(gx, gz)) continue;
                 const reverse = walkable(gx - forward.x, farmLevel, gz - forward.z);
                 if (!reverse && !walkable(gx + forward.x, farmLevel, gz + forward.z)) continue;
                 let clearance = 0, plants = crop(gx, farmLevel, gz) ? 1 : 0;
@@ -488,7 +513,8 @@
     }
     function reverseSameRow(p, note) {
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
-        if (!walkable(bx - forward.x, farmLevel, bz - forward.z)) return escapeCorner(p);
+        if (!walkable(bx - forward.x, farmLevel, bz - forward.z)
+                || (avoidedCorner(bx - forward.x, bz - forward.z) && !avoidedCorner(bx, bz))) return escapeCorner(p);
         releaseKeys();
         yaw += 180; forward = direction(yaw);
         phase = "turnback"; missing = 0; end = null;
@@ -526,7 +552,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v14: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v15: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
@@ -718,6 +744,13 @@
             // Usa o nivel da plantacao, nao o Y arredondado a cada oscilacao dos pes.
             if (phase === "row") {
                 const ax = bx + forward.x, az = bz + forward.z;
+                if (avoidedCorner(ax, az) && !avoidedCorner(bx, bz)) {
+                    if (!reverseSameRow(p, "Evitando retorno ao canto repetido")) {
+                        reason = "regiao repetida sem saida livre";
+                        if (!pauseWork(reason, p)) break;
+                    }
+                    Client.waitTick(); continue;
+                }
                 if (!walkable(ax, farmLevel, az)) {
                     setKeys(false, false);
                     if (blockedFor(ax, az) < 3) { Client.waitTick(); continue; }
