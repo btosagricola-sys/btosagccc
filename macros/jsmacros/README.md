@@ -1,4 +1,4 @@
-# Colheita delimitada — JsMacros / Minecraft 1.21.4 — v17
+# Colheita delimitada — JsMacros / Minecraft 1.21.4 — v18
 
 ## Instalar
 
@@ -8,7 +8,7 @@ o editor JavaScript do JsMacros, substituindo o código antigo. A versão `.js`
 de pressionar, sem repetição. A mesma tecla inicia/para.
 
 Entre na faixa antes de ativar, no patamar da plantação, olhando ao longo das
-fileiras (norte ou sul). Confirme `Zigue-zague v17` no chat. Fora dos limites ou
+fileiras (norte ou sul). Confirme `Zigue-zague v18` no chat. Fora dos limites ou
 em outro nível, a macro recusa iniciar e mostra as coordenadas.
 
 ## Área autorizada pelo usuário
@@ -54,6 +54,11 @@ Reconhece trigo (`minecraft:wheat`), batata, cenoura, fungo do Nether (`nether_w
 distorcido. Não replanta nem verifica maturidade; depende das regras de
 crescimento/replantio do servidor.
 
+A câmera fica em `PITCH = 30` graus para baixo, mais levantada que os 55 graus
+anteriores, mantendo a direção da fileira. Menor valor levanta mais a mira.
+O ataque segue apenas a planta na mira, dentro do alcance normal; colher vários
+blocos de uma vez depende da ferramenta ou da habilidade do servidor.
+
 Mantém avanço/corrida durante a colheita (W + Ctrl nas teclas padrão). As viradas
 são graduais pelo arco mais curto e o movimento aguarda o alinhamento. Não usa
 Shift/agachar. A parada e a desconexão liberam os comandos. Quedas acidentais
@@ -71,7 +76,7 @@ Os nomes esperados dos menus continuam sendo `Fazenda de Batata(s)`,
 exigir ajuste após observar o servidor.
 
 `AREA.enabled = false` habilita a navegação local anterior para regressão ou
-uso fora desta faixa. Não é a configuração padrão da v17.
+uso fora desta faixa. Não é a configuração padrão da v18.
 
 ## Validação e limites
 
