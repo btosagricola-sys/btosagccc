@@ -22,6 +22,20 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
     function ray() {
         s.rayReads++;
         const r = s.yaw * Math.PI / 180, dx = Math.round(-Math.sin(r)), dz = Math.round(Math.cos(r));
+        if (s.preciseRay) {
+            const pitch = s.pitch * Math.PI / 180;
+            for (let t = 0; t <= 4.5; t += 0.025) {
+                const x = Math.floor(s.x - Math.sin(r) * Math.cos(pitch) * t);
+                const z = Math.floor(s.z + Math.cos(r) * Math.cos(pitch) * t);
+                const y = s.y + 1.62 - Math.sin(pitch) * t;
+                if (y < 64) return null;
+                if (solids.has(`${x},${z}`) && y < 66) return { getId: () => 'minecraft:hay_block' };
+                if (y <= 64.875 && crops.has(`${x},${z}`)) return {
+                    getId: () => s.cropId, getX: () => x, getZ: () => z, getY: () => 64, pos: `${x},${z}`
+                };
+            }
+            return null;
+        }
         for (let i = 0; i <= 1; i++) {
             const x = Math.floor(s.x) + dx * i, z = Math.floor(s.z) + dz * i;
             if (solids.has(`${x},${z}`)) return { getId: () => 'minecraft:hay_block' };
@@ -406,7 +420,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v21 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v22 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -971,5 +985,28 @@ test('free roaming varies both axes, keeps smooth aim, avoids walls and resumes 
     assert.deepStrictEqual(f.commands, ['/farms']);
     assert.strictEqual(f.s.closed, 1);
     assert(f.s.harvests > 10);
+});
+test('two-wide actual yaw and pitch ray reaches neighboring wheat while advancing', () => {
+    const script = source.replace('const FREE_ROAM = true;', 'const FREE_ROAM = (true);')
+        .replace('const HARVEST_WIDTH = 2;', 'const HARVEST_WIDTH = (2);')
+        .replace(/Math.random\(\)/g, '0.37')
+        .replace(/const AREA = \{[^\n]+\};/, 'const AREA = { enabled: true, minX: 0, maxX: 9, minZ: 0, maxZ: 19, cropY: 64 };');
+    const f = setup(script, true, false, false, true);
+    f.s.x = 4.5; f.s.z = 3.5; f.s.cropId = 'minecraft:wheat'; f.s.preciseRay = true;
+    f.s.areaGroundMinX = 0; f.s.areaGroundMaxX = 9; f.s.maxZ = 19;
+    f.crops.clear();
+    for (let x = 0; x < 10; x++) for (let z = 0; z < 20; z++) f.crops.add(`${x},${z}`);
+    let sideHits = 0;
+    f.s.onTick = () => {
+        if (f.keys.get('key.attack')) {
+            assert(f.keys.get('key.forward') && f.keys.get('key.sprint'));
+            const last = f.s.harvested[f.s.harvested.length - 1];
+            if (last && Number(last.split(',')[0]) !== Math.floor(f.s.x)) sideHits++;
+        }
+        if (f.s.ticks >= 1400) f.run();
+    };
+    f.run(); released(f);
+    assert(sideHits >= 5, '3D ray did not reach adjacent crop columns');
+    assert(f.s.harvests > 20);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

@@ -1,9 +1,9 @@
-# Colheita livre — JsMacros / Minecraft 1.21.4 — v21
+# Colheita livre — JsMacros / Minecraft 1.21.4 — v22
 
 Pare a macro anterior e substitua todo o código no editor JavaScript do JsMacros
 pelo conteúdo de `batata-ziguezague.txt`. O `.js` e o `.txt` são idênticos.
 Vincule a F6, ao pressionar, sem repetição. A mesma tecla inicia e para.
-Confira `Zigue-zague v21` no chat ao iniciar.
+Confira `Zigue-zague v22` no chat ao iniciar.
 
 ## Área e movimento
 
@@ -26,9 +26,8 @@ setores isolados ou não carregados podem permanecer inacessíveis.
 `HARVEST_WIDTH = 2` tenta colher a faixa central e uma vizinha, sem parar
 para esperar quebrar. Mantém avanço e corrida enquanto a direção real da
 câmera tem passagem segura. A mira alterna entre centro e um lado a cada
-16 ticks, com desvio lateral limitado a 12 graus e rotação de até 3 graus
-por tick. Não garante duas plantas por passagem: o ângulo menor privilegia
-continuidade do movimento e pode deixar plantas laterais para outra volta.
+16 ticks, com mira calculada no centro da planta lateral e rotação de até 3 graus
+por tick. Foi removido o limite de 12 graus que impedia alcançar a fileira vizinha. Não garante duas plantas por passagem: o movimento contínuo e os obstáculos podem deixar plantas laterais para outra volta.
 
 Não aumenta alcance nem velocidade de quebra. O ataque só permanece ativo
 quando o raycast encontra uma cultura suportada dentro da área e no Y correto.
@@ -69,7 +68,7 @@ node --check macros/jsmacros/batata-ziguezague.js
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
 
-82 testes com APIs simuladas. Incluem passeio variando os dois eixos, paredes,
+83 testes com APIs simuladas, incluindo um raycast geométrico em 3D para trigo lateral. Incluem passeio variando os dois eixos, paredes,
 limites, rotação limitada a 3 graus por tick, ataque com avanço e corrida, venda de trigo e retomada. Os testes anteriores
 conservam validação dos modos antigos. O simulador não reproduz alcance visual,
 física, velocidade de corrida, crescimento, latência ou menus reais do servidor.

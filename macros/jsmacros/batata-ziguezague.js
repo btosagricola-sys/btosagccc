@@ -184,7 +184,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v21 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v22 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -775,8 +775,8 @@
             if (target) {
                 const dx = target.x - x, dz = target.z - z;
                 const targetYaw = Math.atan2(-dx, dz) * 180 / Math.PI;
-                const delta = ((targetYaw - heading + 180) % 360 + 360) % 360 - 180;
-                aim = heading + Math.max(-12, Math.min(12, delta));
+                // Usa o angulo real da planta: limitar a 12 graus errava a fileira lateral.
+                aim = targetYaw;
                 pitch = Math.atan2(p.getY() + 1.62 - farmLevel - 0.3, Math.hypot(dx, dz)) * 180 / Math.PI;
             }
             // Continua correndo durante a mira, desde que a direcao real seja segura.
@@ -823,7 +823,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v21: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v22: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
