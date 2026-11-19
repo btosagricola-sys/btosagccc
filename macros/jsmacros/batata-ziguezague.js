@@ -5,6 +5,7 @@
     const SALE_REQUEST = RUN + ".sale", SALE_ACK = RUN + ".sold", SALE_STATE = RUN + ".saleState";
     const PRODUCTS = {
         batata: { button: "Vender Batatas", singular: "batata" },
+        trigo: { button: "Vender Trigo", singular: "trigo", aliases: ["vender trigo", "vender trigos"] },
         cenoura: { button: "Vender Cenouras", singular: "cenoura" },
         fungo: { button: "Vender Fungos", singular: "fungo", aliases: [
             "vender fungo", "vender fungos", "vender fungo do nether", "vender fungos do nether"
@@ -93,14 +94,15 @@
         throw new Error("Objeto de texto sem getString: " + String(text));
     }
     function supportedCrop(id) {
-        return ["minecraft:potatoes", "minecraft:carrots", "minecraft:nether_wart",
+        return ["minecraft:potatoes", "minecraft:carrots", "minecraft:wheat", "minecraft:nether_wart",
             "minecraft:crimson_fungus", "minecraft:warped_fungus"].indexOf(id) >= 0;
     }
     function farmProduct(inv) {
-        const match = /^fazenda de (batatas?|cenouras?|fungos?(?: do nether)?)$/.exec(plain(inv.getContainerTitle()));
+        const match = /^fazenda de (batatas?|cenouras?|trigos?|fungos?(?: do nether)?)$/.exec(plain(inv.getContainerTitle()));
         if (match === null) return null;
         return match[1].startsWith("batata") ? PRODUCTS.batata
-            : match[1].startsWith("cenoura") ? PRODUCTS.cenoura : PRODUCTS.fungo;
+            : match[1].startsWith("cenoura") ? PRODUCTS.cenoura
+            : match[1].startsWith("trigo") ? PRODUCTS.trigo : PRODUCTS.fungo;
     }
     function receive(text) {
         if (text === null || text === undefined || GlobalVars.getString(RUN) !== id) return;
@@ -146,8 +148,8 @@
         const lines = [plain(item.getName().getString())];
         for (const line of item.getLore()) lines.push(plain(line.getString()));
         for (const line of lines) {
-            if (/armazem vazio|nenhuma? (?:batata|cenoura|fungo)|sem (?:batatas|cenouras|fungos)/.test(line)) return 0;
-            const match = /quantidade\s*:\s*([0-9][0-9.,]*)\s+(?:batatas?|cenouras?|fungos?)\b/.exec(line);
+            if (/armazem vazio|nenhuma? (?:batata|cenoura|trigo|fungo)|sem (?:batatas|cenouras|trigos?|fungos)/.test(line)) return 0;
+            const match = /quantidade\s*:\s*([0-9][0-9.,]*)\s+(?:batatas?|cenouras?|trigos?|fungos?)\b/.exec(line);
             if (match) return Number(match[1].replace(/[.,]/g, ""));
         }
         return null;
@@ -177,7 +179,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v16 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v17 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -676,7 +678,7 @@
             && (!AREA.enabled || insideArea(hit.getX(), hit.getZ())));
         KeyBind.keyBind("key.forward", walk);
         KeyBind.keyBind("key.back", false);
-        KeyBind.keyBind("key.sprint", sprint);
+        KeyBind.keyBind("key.sprint", walk && sprint);
         KeyBind.keyBind("key.sneak", false);
         KeyBind.keyBind("key.jump", false);
     }
@@ -689,7 +691,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v16: faixa fixa X 5926-5951, Z 5860-6038; 26 fileiras numeradas. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v17: faixa fixa X 5926-5951, Z 5860-6038; 26 fileiras numeradas. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();

@@ -1,4 +1,4 @@
-# Colheita delimitada — JsMacros / Minecraft 1.21.4 — v16
+# Colheita delimitada — JsMacros / Minecraft 1.21.4 — v17
 
 ## Instalar
 
@@ -8,7 +8,7 @@ o editor JavaScript do JsMacros, substituindo o código antigo. A versão `.js`
 de pressionar, sem repetição. A mesma tecla inicia/para.
 
 Entre na faixa antes de ativar, no patamar da plantação, olhando ao longo das
-fileiras (norte ou sul). Confirme `Zigue-zague v16` no chat. Fora dos limites ou
+fileiras (norte ou sul). Confirme `Zigue-zague v17` no chat. Fora dos limites ou
 em outro nível, a macro recusa iniciar e mostra as coordenadas.
 
 ## Área autorizada pelo usuário
@@ -50,7 +50,7 @@ além de um bloqueio podem ficar para uma passagem posterior. O chat informa
 
 ## Culturas, venda e controles
 
-Reconhece batata, cenoura, fungo do Nether (`nether_wart`), fungo carmesim e fungo
+Reconhece trigo (`minecraft:wheat`), batata, cenoura, fungo do Nether (`nether_wart`), fungo carmesim e fungo
 distorcido. Não replanta nem verifica maturidade; depende das regras de
 crescimento/replantio do servidor.
 
@@ -60,18 +60,18 @@ Shift/agachar. A parada e a desconexão liberam os comandos. Quedas acidentais
 mantêm a recuperação por salto quando há retorno válido.
 
 Só abre `/farms` ao detectar `Armazém cheio`, por chat/título/actionbar, sem
-venda por tempo. Seleciona `Vender Batatas`, `Vender Cenouras` ou os aliases de
+venda por tempo. Seleciona `Vender Trigo`, `Vender Batatas`, `Vender Cenouras` ou os aliases de
 `Vender Fungos`, conforme o título da fazenda. Não clica em itens do inventário
 do jogador ou em botões ambíguos. Fecha o menu após confirmação ou até um
 segundo depois do clique; sem recibo/atualização de quantidade, informa que o
 saldo não foi confirmado. Depois retoma a sequência numerada da faixa.
 
 Os nomes esperados dos menus continuam sendo `Fazenda de Batata(s)`,
-`Fazenda de Cenoura(s)` e `Fazenda de Fungo(s)`/`do Nether`. Outros menus podem
+`Fazenda de Trigo(s)`, `Fazenda de Cenoura(s)` e `Fazenda de Fungo(s)`/`do Nether`. Outros menus podem
 exigir ajuste após observar o servidor.
 
 `AREA.enabled = false` habilita a navegação local anterior para regressão ou
-uso fora desta faixa. Não é a configuração padrão da v16.
+uso fora desta faixa. Não é a configuração padrão da v17.
 
 ## Validação e limites
 

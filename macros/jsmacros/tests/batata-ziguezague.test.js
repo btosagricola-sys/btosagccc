@@ -404,7 +404,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v16 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v17 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -889,5 +889,28 @@ test('bounded row scheduler reaches all 26 columns before repeating a sweep', ()
     assert.strictEqual(f.crops.size, 0);
     assert.strictEqual(new Set(f.s.harvested.map(pos => Number(pos.split(',')[0]))).size, 26);
     assert(f.logs.some(t => t.includes('fileira 26/26')));
+});
+test('wheat harvest sells only after full warehouse and resumes sprinting', () => {
+    const f = boundedAreaFixture(5, 8);
+    f.s.cropId = 'minecraft:wheat'; f.s.menuTitle = 'Fazenda de Trigo';
+    f.s.sellName = 'Vender Trigo'; f.s.cropWord = 'trigos';
+    f.s.decoyName = 'Vender Batatas';
+    let resumed = false;
+    f.s.onTick = () => {
+        if (f.s.ticks < 30) assert.strictEqual(f.commands.length, 0);
+        if (f.s.ticks === 30) f.emit('Title', 'Armazém cheio!');
+        if (f.s.closed && f.keys.get('key.attack') && f.keys.get('key.sprint')) resumed = true;
+        if (f.keys.get('key.sprint')) assert(f.keys.get('key.forward'));
+        assert(!f.keys.get('key.sneak'));
+        if (f.crops.size === 0) f.run();
+    };
+    f.s.onSay = () => { f.s.menu = {}; };
+    f.s.onClick = () => { f.emit('RecvMessage', 'Você vendeu 2.160 trigos!'); f.s.quantity = '0'; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert.deepStrictEqual(f.clicks, [f.s.button]);
+    assert.strictEqual(f.s.closed, 1);
+    assert.strictEqual(f.crops.size, 0);
+    assert(resumed, 'did not resume harvesting with sprint after sale');
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
