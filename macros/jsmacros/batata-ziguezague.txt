@@ -12,7 +12,9 @@
         ] }
     };
     const SALE_PRODUCT = RUN + ".saleProduct";
-    const AREA = { enabled: true, minX: 5926, maxX: 5951, minZ: 5860, maxZ: 6038, cropY: 121 };
+    const AREA = { enabled: true, minX: 5919, maxX: 5951, minZ: 5861, maxZ: 6039, cropY: 121 };
+    const FREE_ROAM = true; // Caminha em direcoes variadas dentro da area segura.
+    const roam = { targets: [], goal: null, age: 0, visits: new Map(), last: "", stuck: 0, x: 0, z: 0 };
     const HARVEST_WIDTH = 3; // Mira na fileira central e nas duas vizinhas.
     const RANDOM_ROWS = true; // Embaralha as fileiras sem repetir antes de completar o ciclo.
     let rowDeck = [];
@@ -182,7 +184,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v19 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v20 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -700,6 +702,83 @@
             nextAreaRow(p, "movimento bloqueado; fileira adiada para a proxima passagem");
         }
     }
+    function roamGoal() {
+        if (!roam.targets.length) {
+            // Divide a faixa inteira em setores para distribuir os destinos.
+            for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) {
+                roam.targets.push({
+                    x: AREA.minX + (x + 0.2 + Math.random() * 0.6) * (AREA.maxX - AREA.minX + 1) / 4,
+                    z: AREA.minZ + (z + 0.2 + Math.random() * 0.6) * (AREA.maxZ - AREA.minZ + 1) / 4
+                });
+            }
+            for (let i = roam.targets.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [roam.targets[i], roam.targets[j]] = [roam.targets[j], roam.targets[i]];
+            }
+        }
+        roam.goal = roam.targets.pop(); roam.age = 0;
+    }
+    function safeRoamHeading(p, angle) {
+        const r = angle * Math.PI / 180, dx = -Math.sin(r), dz = Math.cos(r);
+        // Confere o volume do jogador, incluindo cantos, ate alem do proximo passo.
+        for (const distance of [0, 0.4, 0.9, 1.4]) {
+            for (const ox of [-0.31, 0.31]) for (const oz of [-0.31, 0.31]) {
+                if (!walkable(Math.floor(p.getX() + dx * distance + ox), farmLevel,
+                        Math.floor(p.getZ() + dz * distance + oz))) return false;
+            }
+        }
+        return true;
+    }
+    function roamTick(p) {
+        if (!insideArea(Math.floor(p.getX()), Math.floor(p.getZ())) || Math.abs(p.getY() - farmY) > 0.35) {
+            releaseKeys(); return;
+        }
+        const x = p.getX(), z = p.getZ(), cell = Math.floor(x) + "," + Math.floor(z);
+        if (cell !== roam.last) {
+            roam.last = cell; roam.visits.set(cell, (roam.visits.get(cell) || 0) + 1);
+        }
+        if (Math.hypot(x - roam.x, z - roam.z) > 0.06) roam.stuck = 0;
+        else roam.stuck++;
+        roam.x = x; roam.z = z;
+        if (!roam.goal || Math.hypot(roam.goal.x - x, roam.goal.z - z) < 2 || ++roam.age > 400 || roam.stuck > 60) {
+            roamGoal(); roam.stuck = 0;
+        }
+        const desired = Math.atan2(-(roam.goal.x - x), roam.goal.z - z) * 180 / Math.PI;
+        let heading = null, best = -Infinity;
+        for (const offset of [0, 30, -30, 60, -60, 90, -90, 135, -135, 180]) {
+            const angle = desired + offset;
+            if (!safeRoamHeading(p, angle)) continue;
+            const r = angle * Math.PI / 180;
+            const key = Math.floor(x - Math.sin(r) * 1.4) + "," + Math.floor(z + Math.cos(r) * 1.4);
+            const score = Math.cos(offset * Math.PI / 180) * 4 - (roam.visits.get(key) || 0) * 0.2;
+            if (score > best) { best = score; heading = angle; }
+        }
+        if (heading === null) {
+            releaseKeys(); roam.goal = null; return;
+        }
+        phase = "row";
+        const lane = HARVEST_WIDTH === 3 ? [-1, 0, 1, 0][Math.floor(cycle / 8) % 4] : 0;
+        let target = null;
+        if (lane !== 0) {
+            const r = heading * Math.PI / 180;
+            for (let ahead = 3; ahead >= 1; ahead--) {
+                const tx = Math.floor(x - Math.sin(r) * ahead + Math.cos(r) * lane);
+                const tz = Math.floor(z + Math.cos(r) * ahead + Math.sin(r) * lane);
+                if (insideArea(tx, tz) && crop(tx, farmLevel, tz)) {
+                    target = { x: tx + 0.5, z: tz + 0.5 }; break;
+                }
+            }
+        }
+        if (target) {
+            const dx = target.x - x, dz = target.z - z;
+            const aligned = smoothLook(p, Math.atan2(-dx, dz) * 180 / Math.PI,
+                Math.atan2(p.getY() + 1.62 - farmLevel - 0.3, Math.hypot(dx, dz)) * 180 / Math.PI);
+            setKeys(false, false, aligned);
+        } else {
+            const aligned = smoothLook(p, heading, PITCH);
+            setKeys(aligned, true);
+        }
+    }
     function smoothLook(p, targetYaw, targetPitch) {
         const currentYaw = p.getYaw(), currentPitch = p.getPitch();
         let delta = ((targetYaw - currentYaw + 180) % 360 + 360) % 360 - 180;
@@ -731,7 +810,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v19: faixa fixa X 5926-5951, Z 5860-6038; fileiras variadas, mira em 3 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v20: area X 5919-5951, Z 5861-6039; percurso livre, mira em 3 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
@@ -882,7 +961,8 @@
                 continue;
             }
             if (AREA.enabled) {
-                areaTick(p);
+                if (FREE_ROAM) roamTick(p);
+                else areaTick(p);
                 Client.waitTick(); continue;
             }
             if (phase === "retreat") {

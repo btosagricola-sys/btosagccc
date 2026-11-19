@@ -1,106 +1,73 @@
-# Colheita delimitada — JsMacros / Minecraft 1.21.4 — v19
+# Colheita livre — JsMacros / Minecraft 1.21.4 — v20
 
-## Instalar
+Pare a macro anterior e substitua todo o código no editor JavaScript do JsMacros
+pelo conteúdo de `batata-ziguezague.txt`. O `.js` e o `.txt` são idênticos.
+Vincule a F6, ao pressionar, sem repetição. A mesma tecla inicia e para.
+Confira `Zigue-zague v20` no chat ao iniciar.
 
-Pare a macro anterior. Copie **todo** o conteúdo de `batata-ziguezague.txt` para
-o editor JavaScript do JsMacros, substituindo o código antigo. A versão `.js`
-é idêntica ao documento de texto. Vincule a uma tecla livre, como F6, no gatilho
-de pressionar, sem repetição. A mesma tecla inicia/para.
-
-Entre na faixa antes de ativar, no patamar da plantação, olhando ao longo das
-fileiras (norte ou sul). Confirme `Zigue-zague v19` no chat. Fora dos limites ou
-em outro nível, a macro recusa iniciar e mostra as coordenadas.
-
-## Área autorizada pelo usuário
+## Área e movimento
 
 ```js
-const AREA = { enabled: true, minX: 5926, maxX: 5951, minZ: 5860, maxZ: 6038, cropY: 121 };
+const AREA = { enabled: true, minX: 5919, maxX: 5951, minZ: 5861, maxZ: 6039, cropY: 121 };
 ```
 
-São 26 colunas/fileiras em X e até 179 blocos em Z, com plantas no Y 121
-(pés aproximadamente Y 120,94). Essa faixa é somente a parte que o usuário
-confirmou; não tenta colher a plantação inteira nem o canto fora dela.
+Limites atualizados pelas imagens dos dois pontos: blocos X 5951/Z 6039 e
+X 5919/Z 5861. Inicie dentro da área, com os pés aproximadamente Y 120,94.
+A faixa tem 33 por 179 blocos; obstáculos internos continuam sendo verificados.
 
-O percurso escolhe fileiras em ordem embaralhada dentro da faixa. Cada ciclo
-inclui todas as colunas, sem escolher repetidamente apenas as mais próximas.
-Ainda usa caminhos planejados e apoio no mesmo nível para chegar à próxima
-fileira; não anda aleatoriamente sobre degraus. Trechos inacessíveis podem ser
-adiados. `RANDOM_ROWS = false` restaura a sequência lateral numerada.
+`FREE_ROAM = true` escolhe destinos em 16 setores embaralhados da área e anda
+em direções variadas até eles. Não segue colunas fixas. Verifica apoio, pés,
+cabeça e cantos do jogador até 1,4 bloco adiante antes de avançar. Ao encontrar
+parede ou degrau, procura outra direção no mesmo nível. Contabiliza visitas
+para reduzir a preferência por locais repetidos. Troca de destino após chegar,
+bloqueio ou tempo limite. Isso não garante cobertura completa da plantação:
+setores isolados ou não carregados podem permanecer inacessíveis.
 
-`HARVEST_WIDTH = 3` alterna a mira rapidamente para esquerda, centro e direita.
-A varredura procura plantas nas duas colunas vizinhas até três blocos à frente.
-Durante a mira lateral, pausa o movimento e mantém o ataque apenas se o raycast
-atingir uma cultura suportada dentro dos limites. Retoma W + corrida olhando
-para a frente. Quebra uma planta por vez, respeitando alcance e o servidor;
-não aumenta o alcance nem garante três plantas quebradas simultaneamente.
-`HARVEST_WIDTH = 1` restaura a mira central com viradas graduais.
+`HARVEST_WIDTH = 3` procura plantas na frente e nas duas faixas laterais.
+A mira lateral permanece por cerca de oito ticks antes da próxima fase;
+as mudanças de câmera são graduais, pelo arco mais curto. Prefere plantas
+laterais mais adiante para reduzir o ângulo. Durante a mira lateral, pausa o
+avanço; depois volta a mirar para a direção de movimento e retoma a corrida.
+A largura é uma tentativa de varredura, não quebra simultânea nem aumento de
+alcance. O ataque exige uma cultura suportada na mira, no Y e área corretos.
 
-## Paredes e degraus dentro da faixa
+Mantém W + corrida (Ctrl nos controles padrão), sem agachar. Câmera central a
+30 graus para baixo. A corrida depende das condições normais do Minecraft.
+Menus, parada manual e desconexão soltam as teclas. Não faz login automático.
+Se cair acidentalmente um bloco, conserva a tentativa de retorno por salto
+quando existe um ponto seguro próximo. Pode precisar de intervenção se não
+houver nenhuma direção segura.
 
-A delimitação é um retângulo de alcance, não uma afirmação de que todo bloco
-interno é uma planta ou tem passagem. O script verifica apoio, pés e cabeça no
-nível configurado. Não planeja caminhos fora desses limites nem descidas.
-O ataque também exige uma cultura suportada dentro da faixa e no Y correto.
+`FREE_ROAM = false` restaura o percurso por fileiras; `RANDOM_ROWS` controla a
+ordem delas nesse modo. `HARVEST_WIDTH = 1` desliga a varredura lateral.
+`AREA.enabled = false` habilita a navegação local antiga para regressão.
 
-Procura uma entrada próxima da posição atual para cada coluna. A busca do
-caminho é dividida em até 16 expansões por ciclo para não calcular toda a área
-em um único frame. Só usa blocos/chunks que o cliente conseguiu carregar.
-Durante o planejamento, as teclas ficam soltas, então pode haver uma pausa
-antes de se mover.
+## Culturas e venda automática
 
-Uma parede ou degrau interrompe o trecho reto e passa a tentativa para a
-fileira seguinte. Após três entradas inacessíveis, ou bloqueio de movimento,
-a coluna é registrada/adiada para outra passagem. Isso evita ficar escolhendo
-as mesmas três fileiras próximas, mas **não garante colher trechos isolados
-por paredes, áreas sem chão ou segmentos inacessíveis**. Partes de uma coluna
-além de um bloqueio podem ficar para uma passagem posterior. O chat informa
-`Faixa: fileira N/26` e os motivos dos adiamentos.
+Reconhece trigo, batata, cenoura, fungo do Nether (`nether_wart`), fungo carmesim
+e distorcido. Não replanta nem verifica maturidade: depende do servidor.
 
-## Culturas, venda e controles
+Abre `/farms` somente ao detectar “Armazém cheio” no chat, título ou actionbar.
+Procura `Vender Trigo`, `Vender Batatas`, `Vender Cenouras` ou `Vender Fungos`
+conforme o menu `Fazenda de Trigo`, `Fazenda de Batata(s)`,
+`Fazenda de Cenoura(s)` ou `Fazenda de Fungo(s)`/`do Nether`.
 
-Reconhece trigo (`minecraft:wheat`), batata, cenoura, fungo do Nether (`nether_wart`), fungo carmesim e fungo
-distorcido. Não replanta nem verifica maturidade; depende das regras de
-crescimento/replantio do servidor.
+Clica uma vez no botão correspondente do menu superior. Não escolhe botões
+ambíguos nem itens do inventário do jogador. Fecha após confirmação ou um
+segundo depois do clique e retoma o percurso; sem recibo ou alteração da
+quantidade, informa que o saldo não foi confirmado. Há intervalo para evitar
+vendas repetidas devido a aviso antigo. Outros nomes de menu exigem ajuste.
 
-A câmera fica em `PITCH = 30` graus para baixo, mais levantada que os 55 graus
-anteriores, mantendo a direção da fileira. Menor valor levanta mais a mira.
-O ataque segue apenas a planta na mira, dentro do alcance normal; colher vários
-blocos de uma vez depende da ferramenta ou da habilidade do servidor.
-
-Mantém avanço/corrida durante a colheita (W + Ctrl nas teclas padrão). As mudanças de caminho
-são graduais pelo arco mais curto; a varredura lateral e o retorno da mira
-ao centro são rápidos, conforme solicitado. Não usa
-Shift/agachar. A parada e a desconexão liberam os comandos. Quedas acidentais
-mantêm a recuperação por salto quando há retorno válido.
-
-Só abre `/farms` ao detectar `Armazém cheio`, por chat/título/actionbar, sem
-venda por tempo. Seleciona `Vender Trigo`, `Vender Batatas`, `Vender Cenouras` ou os aliases de
-`Vender Fungos`, conforme o título da fazenda. Não clica em itens do inventário
-do jogador ou em botões ambíguos. Fecha o menu após confirmação ou até um
-segundo depois do clique; sem recibo/atualização de quantidade, informa que o
-saldo não foi confirmado. Depois retoma o percurso da faixa.
-
-Os nomes esperados dos menus continuam sendo `Fazenda de Batata(s)`,
-`Fazenda de Trigo(s)`, `Fazenda de Cenoura(s)` e `Fazenda de Fungo(s)`/`do Nether`. Outros menus podem
-exigir ajuste após observar o servidor.
-
-`AREA.enabled = false` habilita a navegação local anterior para regressão ou
-uso fora desta faixa. Não é a configuração padrão da v19.
-
-## Validação e limites
+## Validação
 
 ```sh
 node --check macros/jsmacros/batata-ziguezague.js
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
 
-A sintaxe e **79 testes simulados passaram**. As cinco verificações novas
-cobrem oito fileiras com proteção dos limites, canto recuado, venda e retomada,
-recusa de início fora da faixa e visita às 26 colunas numa área de teste mais
-curta. Os testes antigos desabilitam o modo delimitado para verificar as
-funções anteriores isoladamente.
-
-Não houve teste no cliente real, medição de FPS nem ensaio de 24 horas. Chunks
-não carregados, entidades, regras do servidor, desconexões e setores isolados
-podem exigir intervenção. Leituras de blocos/chunks usam cache por ciclo; isso
-não comprova correção do lag relatado anteriormente.
+82 testes com APIs simuladas. Incluem passeio variando os dois eixos, paredes,
+limites, rotação gradual, venda de trigo e retomada. Os testes anteriores
+conservam validação dos modos antigos. O simulador não reproduz alcance visual,
+física, velocidade de corrida, crescimento, latência ou menus reais do servidor.
+Não foi executada no Minecraft, não há teste de 24 horas nem comprovação de
+correção do lag relatado. O movimento aleatório não garante colheita completa.

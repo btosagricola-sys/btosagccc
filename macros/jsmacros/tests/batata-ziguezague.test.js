@@ -2,7 +2,8 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
 function setup(script = source, continuous = false, sameRow = false, fieldSweep = false, area = false) {
     script = script.replace("const RANDOM_ROWS = true;", "const RANDOM_ROWS = false;").replace("const HARVEST_WIDTH = 3;", "const HARVEST_WIDTH = 1;");
-    if (!area) script = script.replace("enabled: true, minX: 5926", "enabled: false, minX: 5926");
+    script = script.replace("const FREE_ROAM = true;", "const FREE_ROAM = false;");
+    if (!area) script = script.replace("enabled: true, minX: 5919", "enabled: false, minX: 5919");
     if (!fieldSweep) script = script.replace("const REVERSE_FIELD_SWEEP = true;", "const REVERSE_FIELD_SWEEP = false;");
     script = script.replace(/const RETURN_SAME_ROW = (true|false);/, "const RETURN_SAME_ROW = " + sameRow + ";");
     if (!continuous) script = script.replace("const CONTINUOUS = true;", "const CONTINUOUS = false;");
@@ -405,7 +406,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v19 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v20 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -881,7 +882,7 @@ test('configured production area refuses to start outside the supplied coordinat
     f.run();
     assert.strictEqual(f.s.ticks, 0);
     assert.strictEqual(f.keys.size, 0);
-    assert(f.logs.some(t => t.includes('Entre na faixa X 5926 a 5951')));
+    assert(f.logs.some(t => t.includes('Entre na faixa X 5919 a 5951')));
 });
 test('bounded row scheduler reaches all 26 columns before repeating a sweep', () => {
     const f = boundedAreaFixture(26, 4);
@@ -936,5 +937,35 @@ test('three-wide sweep attacks adjacent wheat without moving toward the lateral 
     assert(lateral, 'no stationary lateral harvest');
     assert(new Set(f.s.harvested.map(pos => pos.split(',')[0])).size >= 3);
     assert(f.logs.some(t => t.includes('Faixa: fileira')));
+});
+test('free roaming varies both axes, keeps smooth aim, avoids walls and resumes after selling', () => {
+    const script = source.replace('const FREE_ROAM = true;', 'const FREE_ROAM = (true);')
+        .replace('const HARVEST_WIDTH = 3;', 'const HARVEST_WIDTH = (3);')
+        .replace(/Math.random\(\)/g, '0.37')
+        .replace(/const AREA = \{[^\n]+\};/, 'const AREA = { enabled: true, minX: 0, maxX: 11, minZ: 0, maxZ: 15, cropY: 64 };');
+    const f = setup(script, true, false, false, true);
+    f.s.x = 5.5; f.s.z = 5.5; f.s.cropId = 'minecraft:wheat';
+    f.s.areaGroundMinX = 0; f.s.areaGroundMaxX = 11; f.s.maxZ = 15;
+    f.s.menuTitle = 'Fazenda de Trigo'; f.s.sellName = 'Vender Trigo'; f.s.cropWord = 'trigo';
+    f.crops.clear();
+    for (let x = 0; x < 12; x++) for (let z = 0; z < 16; z++) f.crops.add(`${x},${z}`);
+    for (let x = 8; x < 12; x++) for (let z = 10; z < 16; z++) {
+        f.solids.add(`${x},${z}`); f.crops.delete(`${x},${z}`);
+    }
+    const visitedX = new Set(), visitedZ = new Set();
+    f.s.onTick = () => {
+        visitedX.add(Math.floor(f.s.x)); visitedZ.add(Math.floor(f.s.z));
+        assert(f.s.x >= 0.3 && f.s.x < 11.7 && f.s.z >= 0.3 && f.s.z < 15.7);
+        assert(!f.solids.has(`${Math.floor(f.s.x)},${Math.floor(f.s.z)}`));
+        if (f.s.ticks === 100) f.emit('Title', 'Armazém cheio!');
+        if (f.s.ticks >= 2200) f.run();
+    };
+    f.s.onSay = () => { f.s.menu = {}; }; f.s.onClick = () => { f.s.quantity = '0'; };
+    f.run(); released(f);
+    assert(visitedX.size >= 5 && visitedZ.size >= 5, 'roam stayed in a local strip');
+    assert(f.lookSteps.every(step => Math.abs(step) <= 10.00001), 'abrupt head rotation');
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert.strictEqual(f.s.closed, 1);
+    assert(f.s.harvests > 10);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
