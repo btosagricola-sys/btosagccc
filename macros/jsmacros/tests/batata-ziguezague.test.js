@@ -1,6 +1,7 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
 function setup(script = source, continuous = false, sameRow = false, fieldSweep = false, area = false) {
+    script = script.replace("const RANDOM_ROWS = true;", "const RANDOM_ROWS = false;").replace("const HARVEST_WIDTH = 3;", "const HARVEST_WIDTH = 1;");
     if (!area) script = script.replace("enabled: true, minX: 5926", "enabled: false, minX: 5926");
     if (!fieldSweep) script = script.replace("const REVERSE_FIELD_SWEEP = true;", "const REVERSE_FIELD_SWEEP = false;");
     script = script.replace(/const RETURN_SAME_ROW = (true|false);/, "const RETURN_SAME_ROW = " + sameRow + ";");
@@ -404,7 +405,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v18 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v19 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -912,5 +913,28 @@ test('wheat harvest sells only after full warehouse and resumes sprinting', () =
     assert.strictEqual(f.s.closed, 1);
     assert.strictEqual(f.crops.size, 0);
     assert(resumed, 'did not resume harvesting with sprint after sale');
+});
+test('three-wide sweep attacks adjacent wheat without moving toward the lateral target', () => {
+    const script = source.replace('const HARVEST_WIDTH = 3;', 'const HARVEST_WIDTH = (3);')
+        .replace('const RANDOM_ROWS = true;', 'const RANDOM_ROWS = (true);')
+        .replace(/const AREA = \{[^\n]+\};/, 'const AREA = { enabled: true, minX: 0, maxX: 4, minZ: 0, maxZ: 7, cropY: 64 };');
+    const f = setup(script, true, false, false, true);
+    f.s.cropId = 'minecraft:wheat'; f.s.areaGroundMinX = 0; f.s.areaGroundMaxX = 4; f.s.maxZ = 7;
+    f.s.x = 2.5; f.crops.clear();
+    for (let x = 0; x < 5; x++) for (let z = 0; z < 8; z++) f.crops.add(`${x},${z}`);
+    let lateral = false;
+    f.s.onTick = () => {
+        if (f.keys.get('key.attack') && !f.keys.get('key.forward')) {
+            lateral = true;
+            assert(!f.keys.get('key.sprint'));
+            assert(!f.keys.get('key.sneak'));
+        }
+        assert(f.s.x >= 0.3 && f.s.x < 4.7);
+        if (f.crops.size === 0 || f.s.ticks > 1500) f.run();
+    };
+    f.run(); released(f);
+    assert(lateral, 'no stationary lateral harvest');
+    assert(new Set(f.s.harvested.map(pos => pos.split(',')[0])).size >= 3);
+    assert(f.logs.some(t => t.includes('Faixa: fileira')));
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

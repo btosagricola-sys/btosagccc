@@ -13,6 +13,9 @@
     };
     const SALE_PRODUCT = RUN + ".saleProduct";
     const AREA = { enabled: true, minX: 5926, maxX: 5951, minZ: 5860, maxZ: 6038, cropY: 121 };
+    const HARVEST_WIDTH = 3; // Mira na fileira central e nas duas vizinhas.
+    const RANDOM_ROWS = true; // Embaralha as fileiras sem repetir antes de completar o ciclo.
+    let rowDeck = [];
     const PITCH = 30; // Camera mais levantada: mira adiante na mesma fileira.
     const REVERSE_FIELD_SWEEP = true; // Zigue-zague de ida e de volta pelo conjunto de fileiras.
     const RETURN_SAME_ROW = false; // Opcao antiga: repetir somente uma linha.
@@ -179,7 +182,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v18 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v19 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -551,6 +554,19 @@
             next = areaRun.column; // Repassa a ultima fileira para inverter o percurso inteiro.
             Chat.log("[Colheita] Faixa: fim das fileiras; percurso invertido.");
         }
+        if (RANDOM_ROWS) {
+            if (!rowDeck.length) {
+                for (let column = AREA.minX; column <= AREA.maxX; column++) rowDeck.push(column);
+                for (let i = rowDeck.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [rowDeck[i], rowDeck[j]] = [rowDeck[j], rowDeck[i]];
+                }
+                if (rowDeck.length > 1 && rowDeck[rowDeck.length - 1] === areaRun.column) {
+                    [rowDeck[0], rowDeck[rowDeck.length - 1]] = [rowDeck[rowDeck.length - 1], rowDeck[0]];
+                }
+            }
+            next = rowDeck.pop();
+        }
         areaRun.column = next; areaRun.direction = -areaRun.direction;
         areaRun.anchor = Math.max(AREA.minZ, Math.min(AREA.maxZ, Math.floor(p.getZ())));
         areaRun.stage = "seek"; areaRun.candidates = null; areaRun.scan = 0;
@@ -653,7 +669,30 @@
             if (!walkable(areaRun.column, farmLevel, nextZ)) {
                 nextAreaRow(p, "parede/degrau: proxima fileira no mesmo nivel"); return;
             }
-            setKeys(smoothLook(p, areaRun.direction > 0 ? 0 : 180, PITCH), true);
+            const lane = [-1, 0, 1, 0][cycle % 4];
+            let target = null;
+            if (HARVEST_WIDTH === 3 && lane !== 0) {
+                const tx = areaRun.column + lane;
+                for (let ahead = 1; ahead <= 3; ahead++) {
+                    const tz = bz + areaRun.direction * ahead;
+                    if (insideArea(tx, tz) && crop(tx, farmLevel, tz)) {
+                        target = { x: tx + 0.5, z: tz + 0.5 }; break;
+                    }
+                }
+            }
+            if (target !== null) {
+                // Mira lateral sem andar para o lado: evita que a varredura leve a uma queda.
+                const dx = target.x - x, dz = target.z - z;
+                const pitch = Math.atan2(p.getY() + 1.62 - (farmLevel + 0.3), Math.hypot(dx, dz)) * 180 / Math.PI;
+                p.lookAt(Math.atan2(-dx, dz) * 180 / Math.PI, pitch);
+                setKeys(false, false, true);
+            } else {
+                const heading = areaRun.direction > 0 ? 0 : 180;
+                if (HARVEST_WIDTH === 3) {
+                    p.lookAt(heading, PITCH);
+                    setKeys(true, true);
+                } else setKeys(smoothLook(p, heading, PITCH), true);
+            }
         }
         if (Math.hypot(x - areaRun.lastX, z - areaRun.lastZ) >= 0.08) {
             areaRun.lastX = x; areaRun.lastZ = z; areaRun.idle = 0;
@@ -672,9 +711,10 @@
         if (!aligned) { idle = 0; checkpoint = { x: p.getX(), z: p.getZ() }; }
         return aligned;
     }
-    function setKeys(walk, sprint) {
-        const hit = phase === "row" && walk ? Player.rayTraceBlock(4.5, false) : null;
-        KeyBind.keyBind("key.attack", phase === "row" && walk && hit !== null && supportedCrop(hit.getId()) && hit.getY() === farmLevel
+    function setKeys(walk, sprint, stationaryAttack = false) {
+        const attacking = walk || stationaryAttack;
+        const hit = phase === "row" && attacking ? Player.rayTraceBlock(4.5, false) : null;
+        KeyBind.keyBind("key.attack", phase === "row" && attacking && hit !== null && supportedCrop(hit.getId()) && hit.getY() === farmLevel
             && (!AREA.enabled || insideArea(hit.getX(), hit.getZ())));
         KeyBind.keyBind("key.forward", walk);
         KeyBind.keyBind("key.back", false);
@@ -691,7 +731,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v18: faixa fixa X 5926-5951, Z 5860-6038; 26 fileiras numeradas. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v19: faixa fixa X 5926-5951, Z 5860-6038; fileiras variadas, mira em 3 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();

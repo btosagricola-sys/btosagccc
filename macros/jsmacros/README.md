@@ -1,4 +1,4 @@
-# Colheita delimitada — JsMacros / Minecraft 1.21.4 — v18
+# Colheita delimitada — JsMacros / Minecraft 1.21.4 — v19
 
 ## Instalar
 
@@ -8,7 +8,7 @@ o editor JavaScript do JsMacros, substituindo o código antigo. A versão `.js`
 de pressionar, sem repetição. A mesma tecla inicia/para.
 
 Entre na faixa antes de ativar, no patamar da plantação, olhando ao longo das
-fileiras (norte ou sul). Confirme `Zigue-zague v18` no chat. Fora dos limites ou
+fileiras (norte ou sul). Confirme `Zigue-zague v19` no chat. Fora dos limites ou
 em outro nível, a macro recusa iniciar e mostra as coordenadas.
 
 ## Área autorizada pelo usuário
@@ -21,11 +21,19 @@ São 26 colunas/fileiras em X e até 179 blocos em Z, com plantas no Y 121
 (pés aproximadamente Y 120,94). Essa faixa é somente a parte que o usuário
 confirmou; não tenta colher a plantação inteira nem o canto fora dela.
 
-O percurso usa uma coluna X por vez e anda ao longo de Z. Mantém uma sequência
-numerada de fileiras, em vez de escolher sempre a planta mais próxima. Ao
-alcançar o limite lateral, repassa a última coluna no sentido contrário e
-percorre as anteriores, repetindo o ciclo. Se iniciar no meio da faixa, tenta
-primeiro as colunas de um lado e depois as do outro.
+O percurso escolhe fileiras em ordem embaralhada dentro da faixa. Cada ciclo
+inclui todas as colunas, sem escolher repetidamente apenas as mais próximas.
+Ainda usa caminhos planejados e apoio no mesmo nível para chegar à próxima
+fileira; não anda aleatoriamente sobre degraus. Trechos inacessíveis podem ser
+adiados. `RANDOM_ROWS = false` restaura a sequência lateral numerada.
+
+`HARVEST_WIDTH = 3` alterna a mira rapidamente para esquerda, centro e direita.
+A varredura procura plantas nas duas colunas vizinhas até três blocos à frente.
+Durante a mira lateral, pausa o movimento e mantém o ataque apenas se o raycast
+atingir uma cultura suportada dentro dos limites. Retoma W + corrida olhando
+para a frente. Quebra uma planta por vez, respeitando alcance e o servidor;
+não aumenta o alcance nem garante três plantas quebradas simultaneamente.
+`HARVEST_WIDTH = 1` restaura a mira central com viradas graduais.
 
 ## Paredes e degraus dentro da faixa
 
@@ -59,8 +67,9 @@ anteriores, mantendo a direção da fileira. Menor valor levanta mais a mira.
 O ataque segue apenas a planta na mira, dentro do alcance normal; colher vários
 blocos de uma vez depende da ferramenta ou da habilidade do servidor.
 
-Mantém avanço/corrida durante a colheita (W + Ctrl nas teclas padrão). As viradas
-são graduais pelo arco mais curto e o movimento aguarda o alinhamento. Não usa
+Mantém avanço/corrida durante a colheita (W + Ctrl nas teclas padrão). As mudanças de caminho
+são graduais pelo arco mais curto; a varredura lateral e o retorno da mira
+ao centro são rápidos, conforme solicitado. Não usa
 Shift/agachar. A parada e a desconexão liberam os comandos. Quedas acidentais
 mantêm a recuperação por salto quando há retorno válido.
 
@@ -69,14 +78,14 @@ venda por tempo. Seleciona `Vender Trigo`, `Vender Batatas`, `Vender Cenouras` o
 `Vender Fungos`, conforme o título da fazenda. Não clica em itens do inventário
 do jogador ou em botões ambíguos. Fecha o menu após confirmação ou até um
 segundo depois do clique; sem recibo/atualização de quantidade, informa que o
-saldo não foi confirmado. Depois retoma a sequência numerada da faixa.
+saldo não foi confirmado. Depois retoma o percurso da faixa.
 
 Os nomes esperados dos menus continuam sendo `Fazenda de Batata(s)`,
 `Fazenda de Trigo(s)`, `Fazenda de Cenoura(s)` e `Fazenda de Fungo(s)`/`do Nether`. Outros menus podem
 exigir ajuste após observar o servidor.
 
 `AREA.enabled = false` habilita a navegação local anterior para regressão ou
-uso fora desta faixa. Não é a configuração padrão da v18.
+uso fora desta faixa. Não é a configuração padrão da v19.
 
 ## Validação e limites
 
