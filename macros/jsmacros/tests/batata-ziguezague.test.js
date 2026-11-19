@@ -1,13 +1,14 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../batata-ziguezague.js'), 'utf8');
-function setup(script = source, continuous = false, sameRow = false, fieldSweep = false) {
+function setup(script = source, continuous = false, sameRow = false, fieldSweep = false, area = false) {
+    if (!area) script = script.replace("enabled: true, minX: 5926", "enabled: false, minX: 5926");
     if (!fieldSweep) script = script.replace("const REVERSE_FIELD_SWEEP = true;", "const REVERSE_FIELD_SWEEP = false;");
     script = script.replace(/const RETURN_SAME_ROW = (true|false);/, "const RETURN_SAME_ROW = " + sameRow + ";");
     if (!continuous) script = script.replace("const CONTINUOUS = true;", "const CONTINUOUS = false;");
     const vars = new Map(), keys = new Map(), crops = new Set(), logs = [], turns = [], solids = new Set(), listeners = new Set(), commands = [], clicks = [], keyHistory = [], lookSteps = [], commandWait = [];
-    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, lowerFromX: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0, cropId: "minecraft:potatoes", soilId: "minecraft:farmland", sellName: "Vender Batatas", cropWord: "batatas", decoyName: "Outro item" };
+    const s = { x: 0.5, z: 0.5, y: 63.9375, allowClimb: true, jumpLast: false, jumps: 0, yaw: 0, pitch: 55, lowerFromZ: null, lowerFromX: null, maxZ: 9, mirror: false, closed: 0, emptyButton: false, ticks: 0, menu: null, connected: true, loaded: true, move: true, onTick: null, onSay: null, onClick: null, menuTitle: "Fazenda de Batata", button: 20, quantity: "2.160", duplicate: false, holding: false, hideSides: false, hudTitle: null, hudOverlay: null, noTitleProbe: false, noJavaType: false, titleTicks: 20, harvests: 0, blockReads: 0, rayReads: 0, cropId: "minecraft:potatoes", soilId: "minecraft:farmland", sellName: "Vender Batatas", cropWord: "batatas", decoyName: "Outro item", areaGroundMinX: null, areaGroundMaxX: null, harvested: [] };
     for (let x = -2; x <= 0; x++) for (let z = 0; z <= 7; z++) crops.add(`${x},${z}`);
-    function ground(x, z) { return (s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
+    function ground(x, z) { return (s.areaGroundMinX !== null ? x >= s.areaGroundMinX && x <= s.areaGroundMaxX : s.mirror ? x >= -1 && x <= 3 : x >= -3 && x <= 1) && z >= -1 && z <= s.maxZ; }
     function block(x, y, z) {
         s.blockReads++;
         const solid = (y === 64 || y === 65) && (solids.has(`${x},${z}`) || (s.hideSides && x !== 0));
@@ -22,7 +23,7 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
         for (let i = 0; i <= 1; i++) {
             const x = Math.floor(s.x) + dx * i, z = Math.floor(s.z) + dz * i;
             if (solids.has(`${x},${z}`)) return { getId: () => 'minecraft:hay_block' };
-            if (crops.has(`${x},${z}`)) return { getId: () => s.cropId, getY: () => (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64, pos: `${x},${z}` };
+            if (crops.has(`${x},${z}`)) return { getId: () => s.cropId, getX: () => x, getZ: () => z, getY: () => (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64, pos: `${x},${z}` };
         }
         return null;
     }
@@ -78,7 +79,7 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
             if (jumping && !s.jumpLast) s.jumps++;
             s.jumpLast = jumping;
             if (jumping && s.allowClimb && s.y < 63.9375) s.y = 63.9375;
-            if (keys.get('key.attack')) { const hit = ray(); if (hit) { assert.strictEqual(hit.getId(), s.cropId); crops.delete(hit.pos); s.harvests++; } }
+            if (keys.get('key.attack')) { const hit = ray(); if (hit) { assert.strictEqual(hit.getId(), s.cropId); crops.delete(hit.pos); s.harvests++; s.harvested.push(hit.pos); } }
             if ((keys.get('key.forward') || keys.get('key.back')) && s.move) {
                 const r = s.yaw * Math.PI / 180;
                 const speed = (keys.get('key.back') ? -1 : 1) * (keys.get('key.sneak') ? 0.07 : 0.1);
@@ -403,7 +404,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v15 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v16 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -829,5 +830,64 @@ test('repeated failed corner recovery blacklists the region and exits when movem
     assert(f.logs.some(t => t.includes('Ciclo no canto detectado')));
     assert(escapedAt !== null);
     assert.strictEqual(f.solids.size, 4);
+});
+function boundedAreaFixture(columns = 8, length = 12) {
+    const script = source.replace(/const AREA = \{[^\n]+\};/,
+        `const AREA = { enabled: true, minX: 0, maxX: ${columns - 1}, minZ: 0, maxZ: ${length - 1}, cropY: 64 };`);
+    const f = setup(script, true, false, false, true);
+    f.s.areaGroundMinX = 0; f.s.areaGroundMaxX = columns - 1; f.s.maxZ = length - 1;
+    f.crops.clear();
+    for (let x = 0; x < columns; x++) for (let z = 0; z < length; z++) f.crops.add(`${x},${z}`);
+    return f;
+}
+test('bounded coverage harvests eight rows instead of cycling over the nearest three', () => {
+    const f = boundedAreaFixture();
+    f.s.onTick = () => {
+        assert(f.s.x - 0.3 >= 0 && f.s.x + 0.3 < 8);
+        assert(f.s.z - 0.3 >= 0 && f.s.z + 0.3 < 12);
+        if (f.crops.size === 0) f.run();
+    };
+    f.run(); released(f);
+    assert.strictEqual(f.crops.size, 0);
+    const rows = new Set(f.s.harvested.map(pos => Number(pos.split(',')[0])));
+    assert.strictEqual(rows.size, 8);
+});
+test('bounded coverage handles inset walls and continues through all reachable rows', () => {
+    const f = boundedAreaFixture(); f.s.cropId = 'minecraft:nether_wart'; f.s.soilId = 'minecraft:soul_sand';
+    for (let x = 3; x < 8; x++) for (let z = 8; z < 12; z++) {
+        f.solids.add(`${x},${z}`); f.crops.delete(`${x},${z}`);
+    }
+    f.s.onTick = () => { if (f.crops.size === 0) f.run(); };
+    f.run(); released(f);
+    assert.strictEqual(f.crops.size, 0);
+    assert.strictEqual(new Set(f.s.harvested.map(pos => Number(pos.split(',')[0]))).size, 8);
+    assert.strictEqual(f.solids.size, 20);
+});
+test('bounded harvest keeps the warehouse sale and resumes its numbered row', () => {
+    const f = boundedAreaFixture(5, 8);
+    f.s.onTick = () => {
+        if (f.s.ticks === 30) f.emit('Title', 'Armazém cheio!');
+        if (f.crops.size === 0) f.run();
+    };
+    f.s.onSay = () => { f.s.menu = {}; }; f.s.onClick = () => { f.s.quantity = '0'; };
+    f.run(); released(f);
+    assert.deepStrictEqual(f.commands, ['/farms']);
+    assert.strictEqual(f.s.closed, 1);
+    assert.strictEqual(f.crops.size, 0);
+});
+test('configured production area refuses to start outside the supplied coordinates', () => {
+    const f = setup(source, true, false, false, true);
+    f.run();
+    assert.strictEqual(f.s.ticks, 0);
+    assert.strictEqual(f.keys.size, 0);
+    assert(f.logs.some(t => t.includes('Entre na faixa X 5926 a 5951')));
+});
+test('bounded row scheduler reaches all 26 columns before repeating a sweep', () => {
+    const f = boundedAreaFixture(26, 4);
+    f.s.onTick = () => { if (f.crops.size === 0) f.run(); };
+    f.run(); released(f);
+    assert.strictEqual(f.crops.size, 0);
+    assert.strictEqual(new Set(f.s.harvested.map(pos => Number(pos.split(',')[0]))).size, 26);
+    assert(f.logs.some(t => t.includes('fileira 26/26')));
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

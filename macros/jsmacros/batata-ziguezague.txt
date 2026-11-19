@@ -11,6 +11,7 @@
         ] }
     };
     const SALE_PRODUCT = RUN + ".saleProduct";
+    const AREA = { enabled: true, minX: 5926, maxX: 5951, minZ: 5860, maxZ: 6038, cropY: 121 };
     const PITCH = 55;
     const REVERSE_FIELD_SWEEP = true; // Zigue-zague de ida e de volta pelo conjunto de fileiras.
     const RETURN_SAME_ROW = false; // Opcao antiga: repetir somente uma linha.
@@ -28,6 +29,15 @@
     const first = Player.getPlayer();
     if (!first || Hud.getOpenScreen() !== null) {
         Chat.log("[Colheita] Entre no mundo e feche os menus."); return;
+    }
+    function insideArea(x, z) {
+        return x >= AREA.minX && x <= AREA.maxX && z >= AREA.minZ && z <= AREA.maxZ;
+    }
+    if (AREA.enabled && (!insideArea(Math.floor(first.getX()), Math.floor(first.getZ()))
+            || Math.abs(first.getY() - (AREA.cropY - 0.0625)) > 0.35)) {
+        Chat.log("[Colheita] Entre na faixa X " + AREA.minX + " a " + AREA.maxX
+            + ", Z " + AREA.minZ + " a " + AREA.maxZ + ", no nivel das plantas Y " + AREA.cropY + ".");
+        return;
     }
     const id = String(Date.now()) + ":" + String(Math.random());
     let yaw = Math.round(first.getYaw() / 90) * 90;
@@ -47,7 +57,7 @@
     let blockedTicks = 0, blockedKey = "";
     let retreat = null, retreatCount = 0, lastRetreat = null;
     let missing = 0, idle = 0, checkpoint = { x: first.getX(), z: first.getZ() };
-    let farmY = first.getY(), farmLevel = Math.ceil(farmY - 0.01);
+    let farmY = first.getY(), farmLevel = AREA.enabled ? AREA.cropY : Math.ceil(farmY - 0.01);
     let lastSafe = null, climb = null;
     const recoveryVisits = new Map();
     const boundaryMisses = new Map();
@@ -60,6 +70,12 @@
     const blockCache = new Map(), chunkCache = new Map();
     let cycle = 0;
     let waitingTicks = 0, lastPauseNote = "", disconnected = false;
+    const areaRun = {
+        column: Math.floor(first.getX()), step: first.getX() < (AREA.minX + AREA.maxX + 1) / 2 ? 1 : -1,
+        direction: Math.cos(first.getYaw() * Math.PI / 180) >= 0 ? 1 : -1,
+        stage: "seek", anchor: Math.floor(first.getZ()), candidates: null, scan: 0,
+        search: null, points: [], point: 0, tries: 0, idle: 0, lastX: first.getX(), lastZ: first.getZ(), note: ""
+    };
     let reason = "desativada";
     GlobalVars.putString(RUN, id); GlobalVars.putString(STOP, "");
 
@@ -161,7 +177,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v15 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v16 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -223,6 +239,7 @@
         return potato(x, y, z) || potato(x, y + 1, z);
     }
     function walkable(cx, cy, cz) {
+        if (AREA.enabled && !insideArea(cx, cz)) return false;
         if (!chunkLoaded(Math.floor(cx / 16), Math.floor(cz / 16))) return false;
         const foot = blockAt(cx, cy, cz), head = blockAt(cx, cy + 1, cz);
         if (foot === null || head === null) return false;
@@ -386,6 +403,7 @@
         return false;
     }
     function calibrateStartingHeight(p) {
+        if (AREA.enabled) return;
         const bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
         const under = blockAt(bx, farmLevel - 1, bz);
         // Diagnostico observado: pes=air e chao=potatoes. Isso e altura inicial errada.
@@ -523,6 +541,124 @@
         Chat.log("[Colheita] " + note + ": voltando pela mesma fileira.");
         return true;
     }
+    function nextAreaRow(p, note) {
+        releaseKeys();
+        let next = areaRun.column + areaRun.step;
+        if (next < AREA.minX || next > AREA.maxX) {
+            areaRun.step = -areaRun.step;
+            next = areaRun.column; // Repassa a ultima fileira para inverter o percurso inteiro.
+            Chat.log("[Colheita] Faixa: fim das fileiras; percurso invertido.");
+        }
+        areaRun.column = next; areaRun.direction = -areaRun.direction;
+        areaRun.anchor = Math.max(AREA.minZ, Math.min(AREA.maxZ, Math.floor(p.getZ())));
+        areaRun.stage = "seek"; areaRun.candidates = null; areaRun.scan = 0;
+        areaRun.search = null; areaRun.points = []; areaRun.tries = 0; areaRun.idle = 0;
+        areaRun.lastX = p.getX(); areaRun.lastZ = p.getZ();
+        Chat.log("[Colheita] Faixa: fileira " + (next - AREA.minX + 1) + "/"
+            + (AREA.maxX - AREA.minX + 1) + " (X " + next + "): " + note);
+    }
+    function areaSearch(startX, startZ, goalX, goalZ) {
+        const queue = [{ x: startX, z: startZ, parent: -1 }];
+        return { queue: queue, seen: new Set([startX + "," + startZ]), head: 0, x: goalX, z: goalZ };
+    }
+    function areaTick(p) {
+        const x = p.getX(), z = p.getZ(), bx = Math.floor(x), bz = Math.floor(z);
+        if (!insideArea(bx, bz) || Math.abs(p.getY() - farmY) > 0.35) {
+            releaseKeys();
+            if (areaRun.note !== "outside") {
+                areaRun.note = "outside";
+                Chat.log("[Colheita] Fora da faixa ou do patamar; aguardando retorno ao nivel configurado.");
+            }
+            return;
+        }
+        areaRun.note = "";
+        if (areaRun.stage === "seek") {
+            phase = "areaTravel"; releaseKeys();
+            if (areaRun.candidates === null) {
+                const list = [];
+                for (let d = 0; d <= AREA.maxZ - AREA.minZ; d++) {
+                    const near = areaRun.anchor + areaRun.direction * d;
+                    const other = areaRun.anchor - areaRun.direction * d;
+                    if (near >= AREA.minZ && near <= AREA.maxZ) list.push(near);
+                    if (d > 0 && other >= AREA.minZ && other <= AREA.maxZ) list.push(other);
+                }
+                areaRun.candidates = list;
+            }
+            for (let n = 0; n < 4 && areaRun.scan < areaRun.candidates.length; n++) {
+                const targetZ = areaRun.candidates[areaRun.scan++];
+                if (!walkable(areaRun.column, farmLevel, targetZ)) continue;
+                areaRun.search = areaSearch(bx, bz, areaRun.column, targetZ);
+                areaRun.stage = "plan";
+                return;
+            }
+            if (areaRun.scan >= areaRun.candidates.length) nextAreaRow(p, "sem entrada segura/carregada; seguindo a sequencia");
+            return;
+        }
+        if (areaRun.stage === "plan") {
+            phase = "areaTravel"; releaseKeys();
+            const search = areaRun.search;
+            // Trabalho fracionado: nao calcula o caminho de toda a faixa em um frame.
+            for (let budget = 0; budget < 16 && search.head < search.queue.length; budget++) {
+                const at = search.head++, node = search.queue[at];
+                if (node.x === search.x && node.z === search.z) {
+                    const points = [];
+                    for (let pos = at; search.queue[pos].parent >= 0; pos = search.queue[pos].parent) {
+                        points.unshift({ x: search.queue[pos].x + 0.5, z: search.queue[pos].z + 0.5 });
+                    }
+                    areaRun.points = points; areaRun.point = 0; areaRun.origin = { x: x, z: z };
+                    areaRun.stage = points.length ? "travel" : "farm";
+                    areaRun.idle = 0; areaRun.lastX = x; areaRun.lastZ = z;
+                    return;
+                }
+                for (const d of [{x:1,z:0},{x:-1,z:0},{x:0,z:1},{x:0,z:-1}]) {
+                    const nx = node.x + d.x, nz = node.z + d.z, key = nx + "," + nz;
+                    if (search.seen.has(key) || !walkable(nx, farmLevel, nz)) continue;
+                    search.seen.add(key); search.queue.push({ x: nx, z: nz, parent: at });
+                }
+            }
+            if (search.head >= search.queue.length) {
+                areaRun.tries++;
+                if (areaRun.tries >= 3) nextAreaRow(p, "entrada inacessivel; tentativa registrada");
+                else areaRun.stage = "seek";
+            }
+            return;
+        }
+        if (areaRun.stage === "travel") {
+            phase = "areaTravel";
+            const point = areaRun.points[areaRun.point];
+            const origin = areaRun.point === 0 ? areaRun.origin : areaRun.points[areaRun.point - 1];
+            const dx = point.x - origin.x, dz = point.z - origin.z, length = Math.hypot(dx, dz);
+            const along = length > 0 ? ((point.x - x) * dx + (point.z - z) * dz) / length : 0;
+            const across = length > 0 ? Math.abs((x - origin.x) * dz - (z - origin.z) * dx) / length : Infinity;
+            const passed = length > 0 && along <= 0.13 && along >= -0.4 && across <= 0.18;
+            if (Math.hypot(point.x - x, point.z - z) <= 0.13 || passed) {
+                releaseKeys(); areaRun.point++;
+                if (areaRun.point >= areaRun.points.length) areaRun.stage = "farm";
+            } else if (!walkable(Math.floor(point.x), farmLevel, Math.floor(point.z))) {
+                releaseKeys(); areaRun.stage = "seek"; areaRun.tries++;
+                if (areaRun.tries >= 3) nextAreaRow(p, "passagem mudou; seguindo para outra fileira");
+            } else {
+                const aligned = smoothLook(p, Math.atan2(-(point.x - x), point.z - z) * 180 / Math.PI, PITCH);
+                setKeys(aligned, false);
+            }
+        } else {
+            phase = "row";
+            const targetZ = areaRun.direction > 0 ? AREA.maxZ + 0.5 : AREA.minZ + 0.5;
+            if ((targetZ - z) * areaRun.direction <= 0.15) {
+                nextAreaRow(p, "limite da faixa alcancado"); return;
+            }
+            const nextZ = bz + areaRun.direction;
+            if (!walkable(areaRun.column, farmLevel, nextZ)) {
+                nextAreaRow(p, "parede/degrau: proxima fileira no mesmo nivel"); return;
+            }
+            setKeys(smoothLook(p, areaRun.direction > 0 ? 0 : 180, PITCH), true);
+        }
+        if (Math.hypot(x - areaRun.lastX, z - areaRun.lastZ) >= 0.08) {
+            areaRun.lastX = x; areaRun.lastZ = z; areaRun.idle = 0;
+        } else if (++areaRun.idle >= 60) {
+            nextAreaRow(p, "movimento bloqueado; fileira adiada para a proxima passagem");
+        }
+    }
     function smoothLook(p, targetYaw, targetPitch) {
         const currentYaw = p.getYaw(), currentPitch = p.getPitch();
         let delta = ((targetYaw - currentYaw + 180) % 360 + 360) % 360 - 180;
@@ -536,7 +672,8 @@
     }
     function setKeys(walk, sprint) {
         const hit = phase === "row" && walk ? Player.rayTraceBlock(4.5, false) : null;
-        KeyBind.keyBind("key.attack", phase === "row" && walk && hit !== null && supportedCrop(hit.getId()) && hit.getY() === farmLevel);
+        KeyBind.keyBind("key.attack", phase === "row" && walk && hit !== null && supportedCrop(hit.getId()) && hit.getY() === farmLevel
+            && (!AREA.enabled || insideArea(hit.getX(), hit.getZ())));
         KeyBind.keyBind("key.forward", walk);
         KeyBind.keyBind("key.back", false);
         KeyBind.keyBind("key.sprint", sprint);
@@ -552,7 +689,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v15: batata e cenoura, retorno de saida e zigue-zague no patamar superior. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v16: faixa fixa X 5926-5951, Z 5860-6038; 26 fileiras numeradas. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
@@ -635,7 +772,7 @@
             const x = p.getX(), z = p.getZ(), y = Math.floor(p.getY());
             const bx = Math.floor(x), bz = Math.floor(z);
             const py = p.getY();
-            if (phase === "waiting") {
+            if (!AREA.enabled && phase === "waiting") {
                 releaseKeys();
                 if (++waitingTicks >= RETRY_TICKS) {
                     waitingTicks = 0;
@@ -701,6 +838,10 @@
                 }
                 Client.waitTick();
                 continue;
+            }
+            if (AREA.enabled) {
+                areaTick(p);
+                Client.waitTick(); continue;
             }
             if (phase === "retreat") {
                 setKeys(false, false);
