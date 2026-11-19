@@ -420,7 +420,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v22 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v23 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -981,7 +981,7 @@ test('free roaming varies both axes, keeps smooth aim, avoids walls and resumes 
     f.s.onSay = () => { f.s.menu = {}; }; f.s.onClick = () => { f.s.quantity = '0'; };
     f.run(); released(f);
     assert(visitedX.size >= 5 && visitedZ.size >= 5, 'roam stayed in a local strip');
-    assert(f.lookSteps.every(step => Math.abs(step) <= 3.00001), 'abrupt head rotation');
+    assert(f.lookSteps.every(step => Math.abs(step) <= 12.00001), 'abrupt head rotation');
     assert.deepStrictEqual(f.commands, ['/farms']);
     assert.strictEqual(f.s.closed, 1);
     assert(f.s.harvests > 10);

@@ -184,7 +184,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v22 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v23 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -757,10 +757,10 @@
             releaseKeys(); roam.goal = null; return;
         }
         phase = "row";
-        const lane = HARVEST_WIDTH === 2 ? [0, 1][Math.floor(cycle / 16) % 2]
+        const lane = HARVEST_WIDTH === 2 ? [0, 1][Math.floor(cycle / 4) % 2]
             : HARVEST_WIDTH === 3 ? [-1, 0, 1, 0][Math.floor(cycle / 8) % 4] : 0;
         let target = null;
-        if (lane !== 0) {
+        if (HARVEST_WIDTH === 2 || lane !== 0) {
             const r = heading * Math.PI / 180;
             for (let ahead = 3; ahead >= 1; ahead--) {
                 const tx = Math.floor(x - Math.sin(r) * ahead + Math.cos(r) * lane);
@@ -780,8 +780,8 @@
                 pitch = Math.atan2(p.getY() + 1.62 - farmLevel - 0.3, Math.hypot(dx, dz)) * 180 / Math.PI;
             }
             // Continua correndo durante a mira, desde que a direcao real seja segura.
-            smoothLook(p, aim, pitch, 3);
-            setKeys(safeRoamHeading(p, p.getYaw()), true);
+            smoothLook(p, aim, pitch, 12);
+            setKeys(safeRoamHeading(p, p.getYaw()), true, false, true);
         } else if (target) {
             const dx = target.x - x, dz = target.z - z;
             const aligned = smoothLook(p, Math.atan2(-dx, dz) * 180 / Math.PI,
@@ -803,11 +803,13 @@
         if (!aligned) { idle = 0; checkpoint = { x: p.getX(), z: p.getZ() }; }
         return aligned;
     }
-    function setKeys(walk, sprint, stationaryAttack = false) {
+    function setKeys(walk, sprint, stationaryAttack = false, holdAttack = false) {
         const attacking = walk || stationaryAttack;
         const hit = phase === "row" && attacking ? Player.rayTraceBlock(4.5, false) : null;
-        KeyBind.keyBind("key.attack", phase === "row" && attacking && hit !== null && supportedCrop(hit.getId()) && hit.getY() === farmLevel
-            && (!AREA.enabled || insideArea(hit.getX(), hit.getZ())));
+        const cropHit = hit !== null && supportedCrop(hit.getId()) && hit.getY() === farmLevel
+            && (!AREA.enabled || insideArea(hit.getX(), hit.getZ()));
+        // Mantem o botao pressionado entre plantas; solta diante de outros blocos.
+        KeyBind.keyBind("key.attack", phase === "row" && attacking && (cropHit || (holdAttack && hit === null)));
         KeyBind.keyBind("key.forward", walk);
         KeyBind.keyBind("key.back", false);
         KeyBind.keyBind("key.sprint", walk && sprint);
@@ -823,7 +825,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v22: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v23: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
