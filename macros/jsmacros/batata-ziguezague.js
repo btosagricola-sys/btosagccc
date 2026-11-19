@@ -15,7 +15,7 @@
     const AREA = { enabled: true, minX: 5919, maxX: 5951, minZ: 5861, maxZ: 6039, cropY: 121 };
     const FREE_ROAM = true; // Caminha em direcoes variadas dentro da area segura.
     const roam = { targets: [], goal: null, age: 0, visits: new Map(), last: "", stuck: 0, x: 0, z: 0 };
-    const HARVEST_WIDTH = 3; // Mira na fileira central e nas duas vizinhas.
+    const HARVEST_WIDTH = 2; // Faixa central e uma vizinha, sem pausa para colher.
     const RANDOM_ROWS = true; // Embaralha as fileiras sem repetir antes de completar o ciclo.
     let rowDeck = [];
     const PITCH = 30; // Camera mais levantada: mira adiante na mesma fileira.
@@ -184,7 +184,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v20 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v21 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -757,7 +757,8 @@
             releaseKeys(); roam.goal = null; return;
         }
         phase = "row";
-        const lane = HARVEST_WIDTH === 3 ? [-1, 0, 1, 0][Math.floor(cycle / 8) % 4] : 0;
+        const lane = HARVEST_WIDTH === 2 ? [0, 1][Math.floor(cycle / 16) % 2]
+            : HARVEST_WIDTH === 3 ? [-1, 0, 1, 0][Math.floor(cycle / 8) % 4] : 0;
         let target = null;
         if (lane !== 0) {
             const r = heading * Math.PI / 180;
@@ -769,7 +770,19 @@
                 }
             }
         }
-        if (target) {
+        if (HARVEST_WIDTH === 2) {
+            let aim = heading, pitch = PITCH;
+            if (target) {
+                const dx = target.x - x, dz = target.z - z;
+                const targetYaw = Math.atan2(-dx, dz) * 180 / Math.PI;
+                const delta = ((targetYaw - heading + 180) % 360 + 360) % 360 - 180;
+                aim = heading + Math.max(-12, Math.min(12, delta));
+                pitch = Math.atan2(p.getY() + 1.62 - farmLevel - 0.3, Math.hypot(dx, dz)) * 180 / Math.PI;
+            }
+            // Continua correndo durante a mira, desde que a direcao real seja segura.
+            smoothLook(p, aim, pitch, 3);
+            setKeys(safeRoamHeading(p, p.getYaw()), true);
+        } else if (target) {
             const dx = target.x - x, dz = target.z - z;
             const aligned = smoothLook(p, Math.atan2(-dx, dz) * 180 / Math.PI,
                 Math.atan2(p.getY() + 1.62 - farmLevel - 0.3, Math.hypot(dx, dz)) * 180 / Math.PI);
@@ -779,13 +792,13 @@
             setKeys(aligned, true);
         }
     }
-    function smoothLook(p, targetYaw, targetPitch) {
+    function smoothLook(p, targetYaw, targetPitch, turnStep = TURN_STEP) {
         const currentYaw = p.getYaw(), currentPitch = p.getPitch();
         let delta = ((targetYaw - currentYaw + 180) % 360 + 360) % 360 - 180;
         if (delta === -180) delta = 180;
         const dp = targetPitch - currentPitch;
-        const aligned = Math.abs(delta) <= TURN_STEP && Math.abs(dp) <= 5;
-        p.lookAt(currentYaw + Math.max(-TURN_STEP, Math.min(TURN_STEP, delta)),
+        const aligned = Math.abs(delta) <= turnStep && Math.abs(dp) <= 5;
+        p.lookAt(currentYaw + Math.max(-turnStep, Math.min(turnStep, delta)),
             currentPitch + Math.max(-5, Math.min(5, dp)));
         if (!aligned) { idle = 0; checkpoint = { x: p.getX(), z: p.getZ() }; }
         return aligned;
@@ -810,7 +823,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v20: area X 5919-5951, Z 5861-6039; percurso livre, mira em 3 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v21: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
