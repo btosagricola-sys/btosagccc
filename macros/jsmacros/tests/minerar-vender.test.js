@@ -1,5 +1,6 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
-const source = fs.readFileSync(require('path').join(__dirname, '../minerar-vender.js'), 'utf8');
+const original = fs.readFileSync(require('path').join(__dirname, '../minerar-vender.js'), 'utf8');
+const source = original.replace("var AUTOWALK = true;", "var AUTOWALK = false;");
 function fixture() {
     const vars = new Map(), commands = [], clicks = [], logs = [];
     const s = { tick: 0, menu: null, title: 'Vender', held: false, duplicate: false,
@@ -74,5 +75,53 @@ test('manual menus pause mining and disconnect stops the script', () => {
         if (f.s.tick === 20) f.s.connected = false;
     };
     f.run(); assert(!f.s.attack); assert.strictEqual(f.commands.length, 0);
+});
+test('autonomous mining aims at ore, moves and avoids holes and the configured boundary', () => {
+    const keys = new Map(), removed = new Set();
+    const p = { x: 0.5, z: 0.5, yaw: 0, pitch: 35, getX() { return this.x; }, getZ() { return this.z; },
+        getY: () => 64, getYaw() { return this.yaw; }, getPitch() { return this.pitch; },
+        lookAt(yaw, pitch) { this.yaw = yaw; this.pitch = pitch; } };
+    function block(x, y, z) {
+        const solid = y === 63 && Math.abs(x) < 10 && Math.abs(z) < 10 && !removed.has(`${x},${z}`);
+        return { getId: () => solid ? 'minecraft:lapis_ore' : 'minecraft:air',
+            getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
+    }
+    function ray() {
+        const r = p.yaw * Math.PI / 180, pitch = p.pitch * Math.PI / 180;
+        for (let t = 0; t < 4.5; t += 0.025) {
+            const x = Math.floor(p.x - Math.sin(r) * Math.cos(pitch) * t);
+            const z = Math.floor(p.z + Math.cos(r) * Math.cos(pitch) * t);
+            const y = Math.floor(65.62 - Math.sin(pitch) * t), b = block(x, y, z);
+            if (b.getId() !== 'minecraft:air') return Object.assign(b, { getX: () => x, getY: () => y, getZ: () => z });
+        }
+        return null;
+    }
+    const ctx = vm.createContext({ GlobalVars: { getString: () => '' }, Player: { getPlayer: () => p, rayTraceBlock: ray },
+        Hud: { getOpenScreen: () => null }, Chat: { log() {} },
+        KeyBind: { keyBind: (key, value) => keys.set(key, value) }, World: { getBlock: block },
+        testHook: null });
+    const script = original.replace('    GlobalVars.putString(RUN, token);',
+        '    testHook = { step: mineStep, stop: release }; return; GlobalVars.putString(RUN, token);');
+    vm.runInContext(script, ctx);
+    let moved = 0;
+    for (let tick = 0; tick < 400; tick++) {
+        ctx.testHook.step(p);
+        if (keys.get('key.attack')) {
+            const hit = ray(); assert(hit); assert.strictEqual(hit.getY(), 63);
+            assert(Math.hypot(hit.getX() + 0.5 - p.x, hit.getZ() + 0.5 - p.z) >= 1.5);
+            removed.add(`${hit.getX()},${hit.getZ()}`);
+        }
+        if (keys.get('key.forward')) {
+            p.x -= Math.sin(p.yaw * Math.PI / 180) * 0.1;
+            p.z += Math.cos(p.yaw * Math.PI / 180) * 0.1; moved++;
+        }
+        for (const ox of [-0.3, 0.3]) for (const oz of [-0.3, 0.3]) {
+            assert.notStrictEqual(block(Math.floor(p.x + ox), 63, Math.floor(p.z + oz)).getId(), 'minecraft:air', 'walked into hole');
+        }
+        assert(Math.abs(p.x - 0.5) <= 16 && Math.abs(p.z - 0.5) <= 16);
+    }
+    assert(removed.size >= 3, 'did not choose and break ore');
+    assert(moved >= 20, 'did not move through mine');
+    ctx.testHook.stop(); assert(!keys.get('key.forward') && !keys.get('key.attack'));
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
