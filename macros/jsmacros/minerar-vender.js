@@ -1,11 +1,11 @@
 // JsMacros: vincule a uma tecla livre (ex.: F7), ao pressionar, sem repeticao.
-// Anda e seleciona blocos da superficie da mina. A mesma tecla inicia/para. Venda a cada 2 minutos.
+// Seleciona blocos, minera e se aproxima conforme o alcance. A mesma tecla inicia/para. Venda a cada 2 minutos.
 (function () {
     var RUN = "btos.minerarVender.run", STOP = RUN + ".stop";
     var INTERVAL_MS = 120000;
     var COMMAND = "/vender";
     var AUTOWALK = true;
-    var RADIUS = 16; // Limite de deslocamento a partir do ponto onde ligou.
+    var RADIUS = 0; // 0 = sem limite artificial de deslocamento.
     var origin = null, target = null, workCycle = 0, miningHeading = 0;
     var blockCache = {}, lastNotice = "";
     var active = GlobalVars.getString(RUN);
@@ -68,35 +68,46 @@
         var state = block.getBlockStateHelper();
         return state.isSolid() && !state.isLiquid();
     }
-    function safePosition(x, z) {
-        if (Math.abs(x - origin.x) > RADIUS || Math.abs(z - origin.z) > RADIUS) return false;
+    function safePosition(x, z, level) {
+        if (RADIUS > 0 && (Math.abs(x - origin.x) > RADIUS || Math.abs(z - origin.z) > RADIUS)) return false;
         for (var ox = -1; ox <= 1; ox += 2) for (var oz = -1; oz <= 1; oz += 2) {
             var bx = Math.floor(x + ox * 0.3), bz = Math.floor(z + oz * 0.3);
             if (typeof World.isChunkLoaded === "function"
                     && !World.isChunkLoaded(Math.floor(bx / 16), Math.floor(bz / 16))) return false;
-            var ground = getBlock(bx, origin.y - 1, bz);
-            if (!groundSolid(ground)
-                    || !air(getBlock(bx, origin.y, bz)) || !air(getBlock(bx, origin.y + 1, bz))) return false;
+            // Cada canto pode ter apoio no nivel atual ou um bloco abaixo.
+            var same = groundSolid(getBlock(bx, level - 1, bz));
+            var down = !same && air(getBlock(bx, level - 1, bz)) && groundSolid(getBlock(bx, level - 2, bz));
+            if ((!same && !down) || !air(getBlock(bx, level, bz)) || !air(getBlock(bx, level + 1, bz))) return false;
         }
         return true;
     }
     function safeAhead(p, angle) {
-        var r = angle * Math.PI / 180;
-        for (var d = 0; d <= 1.21; d += 0.2) {
-            if (!safePosition(p.getX() - Math.sin(r) * d, p.getZ() + Math.cos(r) * d)) return false;
+        var r = angle * Math.PI / 180, level = Math.ceil(p.getY() - 0.01);
+        for (var d = 0; d <= 0.61; d += 0.1) {
+            if (!safePosition(p.getX() - Math.sin(r) * d, p.getZ() + Math.cos(r) * d, level)) return false;
         }
         return true;
     }
+    function underPlayer(p, x, y, z) {
+        var level = Math.ceil(p.getY() - 0.01);
+        return y < level && x + 1 > p.getX() - 0.3 && x < p.getX() + 0.3
+            && z + 1 > p.getZ() - 0.3 && z < p.getZ() + 0.3;
+    }
     function selectTarget(p, heading) {
         var best = null, score = -Infinity, r = heading * Math.PI / 180;
+        var level = Math.ceil(p.getY() - 0.01);
         for (var dx = -4; dx <= 4; dx++) for (var dz = -4; dz <= 4; dz++) {
             var x = Math.floor(p.getX()) + dx, z = Math.floor(p.getZ()) + dz;
             var rx = x + 0.5 - p.getX(), rz = z + 0.5 - p.getZ(), dist = Math.sqrt(rx * rx + rz * rz);
-            if (dist < 1.5 || dist > 3.3 || Math.abs(x + 0.5 - origin.x) > RADIUS
-                    || Math.abs(z + 0.5 - origin.z) > RADIUS || !minable(getBlock(x, origin.y - 1, z))) continue;
-            var ahead = (-Math.sin(r) * rx + Math.cos(r) * rz) / dist;
-            var value = ahead * 4 - dist;
-            if (value > score) { score = value; best = { x: x, z: z }; }
+            if (RADIUS > 0 && (Math.abs(x + 0.5 - origin.x) > RADIUS || Math.abs(z + 0.5 - origin.z) > RADIUS)) continue;
+            for (var y = level - 1; y <= level + 1; y++) {
+                var vertical = y + 0.5 - p.getY() - 1.62;
+                if ((y < level && dist < 1.5) || dist * dist + vertical * vertical > 4.3 * 4.3 || underPlayer(p, x, y, z)
+                        || !minable(getBlock(x, y, z))) continue;
+                var ahead = dist > 0 ? (-Math.sin(r) * rx + Math.cos(r) * rz) / dist : 0;
+                var value = ahead * 3 - dist - Math.abs(vertical) * 0.25;
+                if (value > score) { score = value; best = { x: x, y: y, z: z }; }
+            }
         }
         return best;
     }
@@ -106,50 +117,45 @@
             origin = { x: p.getX(), y: Math.ceil(p.getY() - 0.01), z: p.getZ() };
             miningHeading = p.getYaw();
         }
-        if (Math.abs(p.getY() - origin.y) > 0.35) {
-            release(); notice("Nivel diferente do inicial: pes Y " + p.getY() + ", esperado " + origin.y + ". Volte ao piso inicial."); return;
-        }
-        // Escolhe uma direcao com apoio antes de mirar outro bloco.
-        if (!safeAhead(p, miningHeading)) {
-            var found = false, offsets = [45, -45, 90, -90, 135, -135, 180];
-            for (var i = 0; i < offsets.length; i++) if (safeAhead(p, miningHeading + offsets[i])) {
-                miningHeading += offsets[i]; found = true; break;
+        if (target && (!minable(getBlock(target.x, target.y, target.z))
+                || underPlayer(p, target.x, target.y, target.z)
+                || Math.pow(target.x + 0.5 - p.getX(), 2) + Math.pow(target.z + 0.5 - p.getZ(), 2)
+                    + Math.pow(target.y + 0.5 - p.getY() - 1.62, 2) > 4.3 * 4.3)) target = null;
+        if (!safeAhead(p, miningHeading) && (!target || target.y < Math.ceil(p.getY() - 0.01))) {
+            var turns = [45, -45, 90, -90, 135, -135, 180];
+            for (var t = 0; t < turns.length; t++) if (safeAhead(p, miningHeading + turns[t])) {
+                miningHeading += turns[t]; target = null; break;
             }
-            if (!found) {
-                release();
-                var bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
-                var floor = getBlock(bx, origin.y - 1, bz), feet = getBlock(bx, origin.y, bz);
-                notice("Sem passagem com apoio. Chao=" + (floor ? floor.getId() : "nao carregado")
-                    + ", pes=" + (feet ? feet.getId() : "ar/ausente") + ", Y=" + p.getY() + ".");
-                return;
-            }
-            target = null;
-        }
-        if (target) {
-            var distance = Math.sqrt(Math.pow(target.x + 0.5 - p.getX(), 2) + Math.pow(target.z + 0.5 - p.getZ(), 2));
-            if (distance < 1.5 || distance > 3.5 || !minable(getBlock(target.x, origin.y - 1, target.z))) target = null;
         }
         if (!target) target = selectTarget(p, miningHeading);
-        if (!target) notice("Nenhum bloco reconhecido ao alcance. Aproxime-se de pedra ou minerio; limite de 16 blocos do inicio.");
-        else if (lastNotice !== "Selecionando e minerando blocos.") notice("Selecionando e minerando blocos.");
-        var aim = miningHeading, pitch = 35;
+        var aim = miningHeading, pitch = 35, horizontal = Infinity;
         if (target) {
+            notice("Selecionando e minerando blocos.");
             var dx = target.x + 0.5 - p.getX(), dz = target.z + 0.5 - p.getZ();
+            horizontal = Math.sqrt(dx * dx + dz * dz);
             aim = Math.atan2(-dx, dz) * 180 / Math.PI;
-            pitch = Math.atan2(p.getY() + 1.62 - origin.y + 0.05, Math.sqrt(dx * dx + dz * dz)) * 180 / Math.PI;
+            pitch = Math.atan2(p.getY() + 1.62 - target.y - 0.5, horizontal) * 180 / Math.PI;
+        } else {
+            notice("Nenhum bloco reconhecido ao alcance; procurando passagem.");
+            var offsets = [0, 45, -45, 90, -90, 135, -135, 180];
+            for (var i = 0; i < offsets.length; i++) if (safeAhead(p, miningHeading + offsets[i])) {
+                aim = miningHeading + offsets[i]; miningHeading = aim; break;
+            }
         }
         var delta = ((aim - p.getYaw() + 180) % 360 + 360) % 360 - 180;
         p.lookAt(p.getYaw() + Math.max(-12, Math.min(12, delta)), pitch);
         var hit = target ? Player.rayTraceBlock(4.5, false) : null;
-        var attack = hit && minable(hit) && hit.getX() === target.x && hit.getZ() === target.z && hit.getY() === origin.y - 1;
+        // Ataca o primeiro minerio visivel; nao fica esperando um alvo oculto atras dele.
+        var attack = hit && minable(hit) && !underPlayer(p, hit.getX(), hit.getY(), hit.getZ());
         KeyBind.keyBind("key.attack", !!attack);
-        // Nunca quebra o apoio atual; a passagem e reavaliada depois de cada quebra.
-        KeyBind.keyBind("key.forward", safeAhead(p, p.getYaw()));
+        // Minera perto parado; aproxima somente quando o alvo esta mais distante.
+        var approach = !target || horizontal > 1.4;
+        KeyBind.keyBind("key.forward", approach && Math.abs(delta) < 30 && safeAhead(p, p.getYaw()));
         KeyBind.keyBind("key.sprint", false);
     }
     GlobalVars.putString(RUN, token); GlobalVars.putString(STOP, "");
     try {
-        Chat.log("[Minerar] Minerar/Vender v4: movimento e mira automaticos, raio 16 blocos, /vender a cada 2 minutos. Mesma tecla para parar.");
+        Chat.log("[Minerar] Minerar/Vender v5: movimento e mira automaticos, aproxima e minera em niveis diferentes, /vender a cada 2 minutos. Mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === token && GlobalVars.getString(STOP) !== token) {
             if (!Player.getPlayer()) { reason = "desconectou"; break; }
             var screen = Hud.getOpenScreen();

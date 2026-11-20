@@ -109,7 +109,8 @@ function autonomousCase(playerY, stateAvailable, nullAir = false) {
         ctx.testHook.step(p);
         if (keys.get('key.attack')) {
             const hit = ray(); assert(hit); assert.strictEqual(hit.getY(), 63);
-            assert(Math.hypot(hit.getX() + 0.5 - p.x, hit.getZ() + 0.5 - p.z) >= 1.5);
+            assert(!(hit.getX() + 1 > p.x - 0.3 && hit.getX() < p.x + 0.3
+                && hit.getZ() + 1 > p.z - 0.3 && hit.getZ() < p.z + 0.3), 'mined own support');
             removed.add(`${hit.getX()},${hit.getZ()}`);
         }
         if (keys.get('key.forward')) {
@@ -129,4 +130,47 @@ test('autonomous mining aims at ore, moves and avoids holes and the configured b
 test('rounding just below integer feet height does not mistake the floor for a wall', () => autonomousCase(63.999999, true));
 test('known ore supports movement when the block-state helper is absent', () => autonomousCase(64, false));
 test('1.8.9 air represented by null still allows walking and selecting ore with verified support', () => autonomousCase(64, false, true));
+test('continues mining inside a one-block pit and approaches newly selected blocks', () => {
+    const keys = new Map(), removed = new Set(['0,63,0']);
+    const p = { x: 0.5, y: 63, z: 0.5, yaw: 0, pitch: 35,
+        getX() { return this.x; }, getY() { return this.y; }, getZ() { return this.z; }, getYaw() { return this.yaw; },
+        lookAt(yaw, pitch) { this.yaw = yaw; this.pitch = pitch; } };
+    function block(x, y, z) {
+        return y >= 55 && y <= 63 && !removed.has(`${x},${y},${z}`) ? { getId: () => 'minecraft:lapis_ore' } : null;
+    }
+    function ray() {
+        const yaw = p.yaw * Math.PI / 180, pitch = p.pitch * Math.PI / 180;
+        for (let t = 0; t <= 4.5; t += 0.025) {
+            const x = Math.floor(p.x - Math.sin(yaw) * Math.cos(pitch) * t);
+            const z = Math.floor(p.z + Math.cos(yaw) * Math.cos(pitch) * t);
+            const y = Math.floor(p.y + 1.62 - Math.sin(pitch) * t), b = block(x, y, z);
+            if (b) return Object.assign(b, { getX: () => x, getY: () => y, getZ: () => z });
+        }
+        return null;
+    }
+    const ctx = vm.createContext({ GlobalVars: { getString: () => '' }, Player: { getPlayer: () => p, rayTraceBlock: ray },
+        Hud: { getOpenScreen: () => null }, Chat: { log() {} }, World: { getBlock: block },
+        KeyBind: { keyBind: (key, value) => keys.set(key, value) }, testHook: null });
+    vm.runInContext(original.replace('    GlobalVars.putString(RUN, token);',
+        '    testHook = { step: mineStep, safe: safePosition }; return; GlobalVars.putString(RUN, token);'), ctx);
+    let moved = 0, wallMined = false;
+    for (let tick = 0; tick < 400; tick++) {
+        ctx.testHook.step(p);
+        if (keys.get('key.attack')) {
+            const hit = ray(); assert(hit);
+            if (hit.getY() >= p.y) wallMined = true;
+            removed.add(`${hit.getX()},${hit.getY()},${hit.getZ()}`);
+        }
+        if (keys.get('key.forward')) {
+            p.x -= Math.sin(p.yaw * Math.PI / 180) * 0.1;
+            p.z += Math.cos(p.yaw * Math.PI / 180) * 0.1; moved++;
+            if (!block(Math.floor(p.x), p.y - 1, Math.floor(p.z))) {
+                assert(block(Math.floor(p.x), p.y - 2, Math.floor(p.z)), 'entered deeper fall'); p.y--;
+            }
+        }
+    }
+    assert(wallMined, 'did not clear the block in front of the pit');
+    assert(removed.size > 8 && moved > 20, 'did not continue after the first block: removed=' + removed.size + ', moved=' + moved);
+    assert(ctx.testHook.safe(20, 0, 64), 'old sixteen-block boundary still active');
+});
 console.log(count + ' tests passed (mocked JsMacros APIs).');

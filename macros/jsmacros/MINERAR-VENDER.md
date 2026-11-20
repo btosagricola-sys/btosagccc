@@ -1,55 +1,57 @@
-# Minerar e vender v4 — JsMacros
+# Minerar e vender v5 — JsMacros
 
-Copie todo o conteúdo de `minerar-vender.txt` para um novo script JavaScript
-do JsMacros. Vincule a F7, ao pressionar, sem repetição. A mesma tecla inicia
-e para. Equipe a picareta, aponte para os blocos e ative com os menus fechados.
+Substitua todo o código de seu script pelo conteúdo de `minerar-vender.txt`.
+Selecione esse arquivo (não a pasta Macros) e execute pelo JsMacros. Também
+pode vincular a uma tecla, como F7, ao pressionar, sem repetição. Executar o
+mesmo script novamente solicita a parada. Equipe uma picareta dentro da mina.
 
-Com `AUTOWALK = true`, procura blocos de pedra e minérios na superfície até
-3,3 blocos de distância, mira neles e anda automaticamente. Inclui minérios
-1.8.9 e blocos de recursos como lápis e diamante. Não minera blocos sob o apoio
-imediato do jogador. A direção de caminhada é reavaliada contra paredes,
-buracos e o limite `RADIUS = 16` a partir da posição inicial, em X e Z.
-Não desce níveis nem calcula um caminho por toda a mina. Pode aguardar caso
-não exista direção com chão seguro. Não promete minerar a área inteira.
+## Mineração e movimento
 
-O teste de chão usa bloco sólido, espaço livre nos pés e na cabeça e amostras
-do volume do jogador adiante. Não é uma simulação completa da física do jogo;
-latência e alterações do servidor ainda podem exigir intervenção.
-`AUTOWALK = false` restaura a mineração parada na mira.
+Seleciona pedra e minérios à frente e ao redor, no chão, nos pés e na altura
+da cabeça. Mira gradualmente e mantém ataque no primeiro minério visível ao
+alcance, sem esperar por um alvo oculto atrás dele. Minera blocos próximos
+parado; avança quando precisa se aproximar. Reescolhe o alvo após a quebra.
 
-Após dois minutos pausa ataque e movimento, envia `/vender`, procura no menu
-`Vender` um único botão de mesmo nome, clica uma vez, fecha o menu após
-aproximadamente um segundo e volta a minerar.
-Se o servidor fechar o menu ao clicar, retoma automaticamente. Conta os dois
-minutos seguintes a partir da retomada, usando o relógio real.
+Usa o nível atual do jogador: permite descida de um bloco com apoio sólido e
+espaço livre, continuando a mineração no novo nível. Não salta para subir nem
+entra voluntariamente em queda maior. Evita quebrar os blocos sob os pés.
+Verifica o volume do jogador até 0,6 bloco à frente antes de avançar.
+
+`RADIUS = 0` remove o limite artificial de 16 blocos. O alcance normal da
+picareta continua valendo. Um valor positivo restaura limite em X e Z a partir
+da posição inicial. Não reconhece os limites da região do servidor e não
+calcula uma rota global pela mina. Pode precisar de intervenção se ficar sem
+passagem ou sem minério acessível; não há garantia de funcionamento contínuo.
+`AUTOWALK = false` restaura mineração parada na mira.
+
+Reconhece pedra, pedregulho, minérios da 1.8.9 e blocos de recursos (lápis,
+diamante, esmeralda, ouro, ferro, carvão e redstone). Não minera blocos fora
+dessa lista. Ar retornado como null é aceito somente junto à confirmação de
+apoio; chunks descarregados são rejeitados quando há API de consulta.
+
+## Venda
+
+Após dois minutos pausa movimento e ataque, envia `/vender`, procura um único
+botão `Vender` no menu `Vender`, clica uma vez e fecha após aproximadamente um
+segundo. Se o servidor fechar ao clicar, retoma automaticamente. O próximo
+intervalo de dois minutos começa após a retomada. Confira o recibo da venda:
+o clique não comprova que a transação foi concluída.
 
 Não clica no inventário do jogador. Em menu inesperado, botão ausente ou
-duplicado, cursor ocupado ou erro de API, interrompe e informa o motivo. Um
-menu aberto manualmente pausa o ataque; fecha-o para continuar. Desconectar
-interrompe o script. Não resolve verificações anti-macro nem reconecta.
+duplicado, cursor ocupado ou erro de API, para e mostra o motivo. Menus manuais
+pausam as ações; desconectar interrompe. Não reconecta nem resolve anti-macro.
 
-O clique não confirma que a venda ocorreu: confira o recibo do servidor.
-O script não reconhece as regras ou fronteiras da região protegida do servidor.
-Inicie dentro da mina. O raio de 16 blocos não substitui limites reais da região.
+## Compatibilidade e validação
 
-Usa as APIs `GlobalVars`, `KeyBind.keyBind`, `Client.waitTick`, `Chat.say`,
-`Player.openInventory` e os métodos de inventário do JsMacros. Foi solicitado
-para uma instalação no Minecraft 1.8.9; a compatibilidade depende do fork e
-da versão do JsMacros instalado. Não foi executado nessa instalação. Se ocorrer
-erro de método ausente, envie a mensagem e a versão exata do mod para adaptar.
+Solicitada para o fork de JsMacros usado no Minecraft 1.8.9. A compatibilidade
+com métodos de bloco, raycast e inventário depende da versão instalada.
+Envie o aviso `[Minerar]` se continuar parada. Não foi testada nessa instalação.
 
-Validação: `node --check macros/jsmacros/minerar-vender.js` e
-`node macros/jsmacros/tests/minerar-vender.test.js`. Dez testes com APIs simuladas, incluindo movimento, mira e buracos;
-não validam o menu, a mineração ou a venda no servidor real.
+```sh
+node --check macros/jsmacros/minerar-vender.js
+node macros/jsmacros/tests/minerar-vender.test.js
+```
 
-A v4 tolera altura dos pés ligeiramente abaixo de um inteiro (por exemplo,
-63,999999 em vez de 64). Pedra e minérios conhecidos não dependem do método
-`getBlockStateHelper` para serem reconhecidos como apoio. Os demais blocos
-continuam exigindo estado sólido. O chat informa mudança de nível, ausência
-de passagem, falta de alvo ou erro da API. Envie o aviso exato se continuar parado.
-
-A v4 aceita `null` como ar nos pés/cabeça, comportamento observado no fork
-1.8.9 do usuário. Exige apoio não nulo e sólido sob cada canto do jogador.
-Também rejeita chunks não carregados quando `World.isChunkLoaded` está disponível.
-O teste que representa ar como `null` confirma movimento e mineração sem
-passar por buracos. Isso não substitui a validação na instalação real.
+11 testes com APIs simuladas: venda, pausa, desconexão, mira, aproximação,
+ar null, altura fracionária e continuidade dentro de buraco de um bloco.
+Não reproduzem integralmente a física, tempo de quebra ou latência reais.
