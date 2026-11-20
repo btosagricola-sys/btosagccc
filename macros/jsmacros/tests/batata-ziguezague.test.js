@@ -15,7 +15,8 @@ function setup(script = source, continuous = false, sameRow = false, fieldSweep 
         s.blockReads++;
         const solid = (y === 64 || y === 65) && (solids.has(`${x},${z}`) || (s.hideSides && x !== 0));
         const cropY = (s.lowerFromZ !== null && z >= s.lowerFromZ) || (s.lowerFromX !== null && x <= s.lowerFromX) ? 63 : 64;
-        const id = solid ? 'minecraft:hay_block' : y === cropY - 1 && ground(x, z) ? s.soilId
+        const fence = s.fences && s.fences.has(`${x},${z}`) && (y === 64 || y === 65);
+        const id = fence ? 'minecraft:oak_fence' : solid ? 'minecraft:hay_block' : y === cropY - 1 && ground(x, z) ? s.soilId
             : y === cropY && crops.has(`${x},${z}`) ? s.cropId : 'minecraft:air';
         return { getId: () => id, getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
     }
@@ -420,7 +421,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v24 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v25 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -1027,5 +1028,23 @@ test('hay ahead triggers escape movement within twenty ticks without waiting for
     };
     f.run(); released(f);
     assert(resumed !== null && resumed <= 20, 'escape did not resume within one second');
+});
+test('standing beside a narrow fence post can escape without treating its entire cell as solid', () => {
+    const script = source.replace('const FREE_ROAM = true;', 'const FREE_ROAM = (true);')
+        .replace('const HARVEST_WIDTH = 2;', 'const HARVEST_WIDTH = (2);')
+        .replace(/const AREA = \{[^\n]+\};/, 'const AREA = { enabled: true, minX: 0, maxX: 11, minZ: 0, maxZ: 15, cropY: 64 };');
+    const f = setup(script, true, false, false, true);
+    f.s.x = 4.95; f.s.z = 5.15; f.s.fences = new Set(['5,5']);
+    f.s.areaGroundMinX = 0; f.s.areaGroundMaxX = 11; f.s.maxZ = 15;
+    f.crops.clear();
+    let moved = false;
+    f.s.onTick = () => {
+        assert(!(f.s.x + 0.3 > 5.375 && f.s.x - 0.3 < 5.625
+            && f.s.z + 0.3 > 5.375 && f.s.z - 0.3 < 5.625), 'walked into post');
+        if (Math.hypot(f.s.x - 4.95, f.s.z - 5.15) > 0.2) moved = true;
+        if (f.s.ticks >= 40) f.run();
+    };
+    f.run(); released(f);
+    assert(moved, 'remained trapped beside fence');
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

@@ -184,7 +184,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v24 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v25 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -718,14 +718,41 @@
         }
         roam.goal = roam.targets.pop(); roam.age = 0;
     }
+    function roamFootprintClear(x, z) {
+        const radius = 0.3, minX = x - radius, maxX = x + radius;
+        const minZ = z - radius, maxZ = z + radius;
+        function intersects(bx, bz, x1, z1, x2, z2) {
+            return maxX > bx + x1 && minX < bx + x2 && maxZ > bz + z1 && minZ < bz + z2;
+        }
+        for (let bx = Math.floor(minX); bx <= Math.floor(maxX); bx++) {
+            for (let bz = Math.floor(minZ); bz <= Math.floor(maxZ); bz++) {
+                if (!insideArea(bx, bz) || !groundSupported(bx, farmLevel, bz)) return false;
+                for (const y of [farmLevel, farmLevel + 1]) {
+                    const block = blockAt(bx, y, bz);
+                    if (block === null) return false;
+                    const id = block.getId();
+                    if (id === "minecraft:air" || id === "minecraft:cave_air" || supportedCrop(id)) continue;
+                    if (!id.endsWith("_fence")) return false;
+                    // Um poste de cerca nao ocupa o cubo inteiro: permite sair ao lado dele.
+                    if (intersects(bx, bz, 0.375, 0.375, 0.625, 0.625)) return false;
+                    for (const d of [{x:1,z:0}, {x:-1,z:0}, {x:0,z:1}, {x:0,z:-1}]) {
+                        const neighbor = blockAt(bx + d.x, y, bz + d.z);
+                        if (neighbor === null) return false;
+                        const nid = neighbor.getId();
+                        if (nid === "minecraft:air" || nid === "minecraft:cave_air" || supportedCrop(nid)) continue;
+                        // Considera conexao a blocos vizinhos de forma conservadora.
+                        if (d.x !== 0 && intersects(bx, bz, d.x < 0 ? 0 : 0.5, 0.375, d.x < 0 ? 0.5 : 1, 0.625)) return false;
+                        if (d.z !== 0 && intersects(bx, bz, 0.375, d.z < 0 ? 0 : 0.5, 0.625, d.z < 0 ? 0.5 : 1)) return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
     function safeRoamHeading(p, angle) {
         const r = angle * Math.PI / 180, dx = -Math.sin(r), dz = Math.cos(r);
-        // Confere o volume do jogador, incluindo cantos, ate alem do proximo passo.
-        for (const distance of [0.05, 0.4, 0.9, 1.4]) {
-            for (const ox of [-0.3, 0.3]) for (const oz of [-0.3, 0.3]) {
-                if (!walkable(Math.floor(p.getX() + dx * distance + ox), farmLevel,
-                        Math.floor(p.getZ() + dz * distance + oz))) return false;
-            }
+        for (const distance of [0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1, 1.2, 1.4]) {
+            if (!roamFootprintClear(p.getX() + dx * distance, p.getZ() + dz * distance)) return false;
         }
         return true;
     }
@@ -837,7 +864,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v24: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v25: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();

@@ -1,9 +1,9 @@
-# Colheita livre — JsMacros / Minecraft 1.21.4 — v24
+# Colheita livre — JsMacros / Minecraft 1.21.4 — v25
 
 Pare a macro anterior e substitua todo o código no editor JavaScript do JsMacros
 pelo conteúdo de `batata-ziguezague.txt`. O `.js` e o `.txt` são idênticos.
 Vincule a F6, ao pressionar, sem repetição. A mesma tecla inicia e para.
-Confira `Zigue-zague v24` no chat ao iniciar.
+Confira `Zigue-zague v25` no chat ao iniciar.
 
 ## Área e movimento
 
@@ -52,6 +52,10 @@ Ao detectar obstrução na direção atual, prioriza a virada de saída por até
 a direção em cada ciclo. O detector de falta de movimento troca de destino
 após 12 ticks, em vez de 60. Não remove pausas de menu ou falta de chão seguro.
 Um teste com feno à frente exige retomada em até 20 ticks no simulador.
+Postes de cerca usam verificação do espaço ocupado pelo jogador contra o
+poste estreito e suas conexões, em vez de bloquear a célula inteira. Conexões
+a vizinhos são consideradas conservadoramente; não reproduz toda a física do
+Minecraft. Um teste confirma saída ao lado do poste sem atravessá-lo.
 
 ## Culturas e venda automática
 
@@ -76,7 +80,7 @@ node --check macros/jsmacros/batata-ziguezague.js
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
 
-84 testes com APIs simuladas, incluindo um raycast geométrico em 3D para trigo lateral. Incluem passeio variando os dois eixos, paredes,
+85 testes com APIs simuladas, incluindo um raycast geométrico em 3D para trigo lateral. Incluem passeio variando os dois eixos, paredes,
 limites, rotação limitada a 12 graus por tick, ataque com avanço e corrida, venda de trigo e retomada. Os testes anteriores
 conservam validação dos modos antigos. O simulador não reproduz alcance visual,
 física, velocidade de corrida, crescimento, latência ou menus reais do servidor.
