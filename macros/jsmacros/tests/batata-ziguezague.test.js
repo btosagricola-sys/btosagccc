@@ -420,7 +420,7 @@ test('missing title fields do not disable available actionbar polling', () => {
     f.s.onClick = () => { f.s.quantity = '0'; f.s.hudOverlay = null; };
     f.run(); released(f);
     assert.deepStrictEqual(f.commands, ['/farms']);
-    assert(f.logs.some(t => t.includes('Leitor HUD v23 ativo: actionbar')));
+    assert(f.logs.some(t => t.includes('Leitor HUD v24 ativo: actionbar')));
 });
 test('visible title at startup works without Java.type or a new event', () => {
     const f = setup(); f.s.noJavaType = true; f.s.hudTitle = 'Armazém cheio!';
@@ -1008,5 +1008,24 @@ test('two-wide actual yaw and pitch ray reaches neighboring wheat while advancin
     f.run(); released(f);
     assert(sideHits >= 5, '3D ray did not reach adjacent crop columns');
     assert(f.s.harvests > 20);
+});
+test('hay ahead triggers escape movement within twenty ticks without waiting for stuck timeout', () => {
+    const script = source.replace('const FREE_ROAM = true;', 'const FREE_ROAM = (true);')
+        .replace('const HARVEST_WIDTH = 2;', 'const HARVEST_WIDTH = (2);')
+        .replace(/const desired = Math.atan2\([^;]+;/, 'const desired = 0;')
+        .replace(/const AREA = \{[^\n]+\};/, 'const AREA = { enabled: true, minX: 0, maxX: 11, minZ: 0, maxZ: 15, cropY: 64 };');
+    const f = setup(script, true, false, false, true);
+    f.s.x = 5.5; f.s.z = 5.5; f.s.yaw = 0;
+    f.s.areaGroundMinX = 0; f.s.areaGroundMaxX = 11; f.s.maxZ = 15;
+    f.crops.clear();
+    for (let x = 4; x <= 7; x++) f.solids.add(`${x},6`);
+    let resumed = null;
+    f.s.onTick = () => {
+        assert(!f.solids.has(`${Math.floor(f.s.x)},${Math.floor(f.s.z)}`));
+        if (Math.hypot(f.s.x - 5.5, f.s.z - 5.5) >= 0.1 && resumed === null) resumed = f.s.ticks;
+        if (f.s.ticks >= 30) f.run();
+    };
+    f.run(); released(f);
+    assert(resumed !== null && resumed <= 20, 'escape did not resume within one second');
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

@@ -1,9 +1,9 @@
-# Colheita livre — JsMacros / Minecraft 1.21.4 — v23
+# Colheita livre — JsMacros / Minecraft 1.21.4 — v24
 
 Pare a macro anterior e substitua todo o código no editor JavaScript do JsMacros
 pelo conteúdo de `batata-ziguezague.txt`. O `.js` e o `.txt` são idênticos.
 Vincule a F6, ao pressionar, sem repetição. A mesma tecla inicia e para.
-Confira `Zigue-zague v23` no chat ao iniciar.
+Confira `Zigue-zague v24` no chat ao iniciar.
 
 ## Área e movimento
 
@@ -47,6 +47,12 @@ houver nenhuma direção segura.
 ordem delas nesse modo. `HARVEST_WIDTH = 1` desliga a varredura lateral.
 `AREA.enabled = false` habilita a navegação local antiga para regressão.
 
+Ao detectar obstrução na direção atual, prioriza a virada de saída por até
+16 ticks (0,8 segundo), suspendendo a mira lateral nesse intervalo. Revalida
+a direção em cada ciclo. O detector de falta de movimento troca de destino
+após 12 ticks, em vez de 60. Não remove pausas de menu ou falta de chão seguro.
+Um teste com feno à frente exige retomada em até 20 ticks no simulador.
+
 ## Culturas e venda automática
 
 Reconhece trigo, batata, cenoura, fungo do Nether (`nether_wart`), fungo carmesim
@@ -70,7 +76,7 @@ node --check macros/jsmacros/batata-ziguezague.js
 node macros/jsmacros/tests/batata-ziguezague.test.js
 ```
 
-83 testes com APIs simuladas, incluindo um raycast geométrico em 3D para trigo lateral. Incluem passeio variando os dois eixos, paredes,
+84 testes com APIs simuladas, incluindo um raycast geométrico em 3D para trigo lateral. Incluem passeio variando os dois eixos, paredes,
 limites, rotação limitada a 12 graus por tick, ataque com avanço e corrida, venda de trigo e retomada. Os testes anteriores
 conservam validação dos modos antigos. O simulador não reproduz alcance visual,
 física, velocidade de corrida, crescimento, latência ou menus reais do servidor.

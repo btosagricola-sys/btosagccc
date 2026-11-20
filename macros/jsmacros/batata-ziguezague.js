@@ -184,7 +184,7 @@
             if (value !== null && timer !== null) probes.push({ name: spec[0], value: value, timer: timer });
         }
         if (probes.length === 0) throw new Error("Nenhum campo de titulo/actionbar disponivel");
-        Chat.log("[Colheita] Leitor HUD v23 ativo: " + probes.map(p => p.name).join(", ") + ".");
+        Chat.log("[Colheita] Leitor HUD v24 ativo: " + probes.map(p => p.name).join(", ") + ".");
         let lastSample = "", lastError = "";
         return function () {
             const currentHud = hudField.get(mc);
@@ -721,8 +721,8 @@
     function safeRoamHeading(p, angle) {
         const r = angle * Math.PI / 180, dx = -Math.sin(r), dz = Math.cos(r);
         // Confere o volume do jogador, incluindo cantos, ate alem do proximo passo.
-        for (const distance of [0, 0.4, 0.9, 1.4]) {
-            for (const ox of [-0.31, 0.31]) for (const oz of [-0.31, 0.31]) {
+        for (const distance of [0.05, 0.4, 0.9, 1.4]) {
+            for (const ox of [-0.3, 0.3]) for (const oz of [-0.3, 0.3]) {
                 if (!walkable(Math.floor(p.getX() + dx * distance + ox), farmLevel,
                         Math.floor(p.getZ() + dz * distance + oz))) return false;
             }
@@ -740,7 +740,7 @@
         if (Math.hypot(x - roam.x, z - roam.z) > 0.06) roam.stuck = 0;
         else roam.stuck++;
         roam.x = x; roam.z = z;
-        if (!roam.goal || Math.hypot(roam.goal.x - x, roam.goal.z - z) < 2 || ++roam.age > 400 || roam.stuck > 60) {
+        if (!roam.goal || Math.hypot(roam.goal.x - x, roam.goal.z - z) < 2 || ++roam.age > 400 || roam.stuck > 12) {
             roamGoal(); roam.stuck = 0;
         }
         const desired = Math.atan2(-(roam.goal.x - x), roam.goal.z - z) * 180 / Math.PI;
@@ -756,7 +756,19 @@
         if (heading === null) {
             releaseKeys(); roam.goal = null; return;
         }
+        // Prioriza sair do obstaculo: a mira de colheita nao disputa com a virada.
+        if (roam.escape && cycle < roam.escape.until && safeRoamHeading(p, roam.escape.heading)) {
+            heading = roam.escape.heading;
+        } else {
+            roam.escape = null;
+            if (!safeRoamHeading(p, p.getYaw())) roam.escape = { heading: heading, until: cycle + 16 };
+        }
         phase = "row";
+        if (roam.escape) {
+            smoothLook(p, heading, PITCH, 12);
+            setKeys(safeRoamHeading(p, p.getYaw()), true);
+            return;
+        }
         const lane = HARVEST_WIDTH === 2 ? [0, 1][Math.floor(cycle / 4) % 2]
             : HARVEST_WIDTH === 3 ? [-1, 0, 1, 0][Math.floor(cycle / 8) % 4] : 0;
         let target = null;
@@ -825,7 +837,7 @@
         try { hudReader = prepareHudReader(); }
         catch (error) { Chat.log("[Colheita] Leitura direta do HUD indisponivel: " + String(error) + "; monitorando eventos de texto."); }
         calibrateStartingHeight(first);
-        Chat.log("[Colheita] Zigue-zague v23: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
+        Chat.log("[Colheita] Zigue-zague v24: area X 5919-5951, Z 5861-6039; percurso livre, mira em 2 de largura. W + Ctrl. Aperte a mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === id && GlobalVars.getString(STOP) !== id) {
             blockCache.clear(); chunkCache.clear(); cycle++;
             const p = Player.getPlayer();
