@@ -49,7 +49,9 @@
         return blockCache[key];
     }
     function air(block) {
-        return block && /^(minecraft:)?(air|cave_air|void_air)$/.test(String(block.getId()));
+        // Alguns forks 1.8.9 retornam null para ar. O apoio e validado separadamente.
+        return block === null || block === undefined
+            || /^(minecraft:)?(air|cave_air|void_air)$/.test(String(block.getId()));
     }
     function minable(block) {
         return block && /^(minecraft:)?(stone|cobblestone|coal_ore|iron_ore|gold_ore|lapis_ore|redstone_ore|lit_redstone_ore|diamond_ore|emerald_ore|quartz_ore|lapis_block|diamond_block|emerald_block|gold_block|iron_block|coal_block|redstone_block)$/.test(String(block.getId()));
@@ -70,6 +72,8 @@
         if (Math.abs(x - origin.x) > RADIUS || Math.abs(z - origin.z) > RADIUS) return false;
         for (var ox = -1; ox <= 1; ox += 2) for (var oz = -1; oz <= 1; oz += 2) {
             var bx = Math.floor(x + ox * 0.3), bz = Math.floor(z + oz * 0.3);
+            if (typeof World.isChunkLoaded === "function"
+                    && !World.isChunkLoaded(Math.floor(bx / 16), Math.floor(bz / 16))) return false;
             var ground = getBlock(bx, origin.y - 1, bz);
             if (!groundSolid(ground)
                     || !air(getBlock(bx, origin.y, bz)) || !air(getBlock(bx, origin.y + 1, bz))) return false;
@@ -116,7 +120,7 @@
                 var bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
                 var floor = getBlock(bx, origin.y - 1, bz), feet = getBlock(bx, origin.y, bz);
                 notice("Sem passagem com apoio. Chao=" + (floor ? floor.getId() : "nao carregado")
-                    + ", pes=" + (feet ? feet.getId() : "nao carregado") + ", Y=" + p.getY() + ".");
+                    + ", pes=" + (feet ? feet.getId() : "ar/ausente") + ", Y=" + p.getY() + ".");
                 return;
             }
             target = null;
@@ -145,7 +149,7 @@
     }
     GlobalVars.putString(RUN, token); GlobalVars.putString(STOP, "");
     try {
-        Chat.log("[Minerar] Minerar/Vender v3: movimento e mira automaticos, raio 16 blocos, /vender a cada 2 minutos. Mesma tecla para parar.");
+        Chat.log("[Minerar] Minerar/Vender v4: movimento e mira automaticos, raio 16 blocos, /vender a cada 2 minutos. Mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === token && GlobalVars.getString(STOP) !== token) {
             if (!Player.getPlayer()) { reason = "desconectou"; break; }
             var screen = Hud.getOpenScreen();

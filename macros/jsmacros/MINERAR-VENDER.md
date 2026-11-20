@@ -1,4 +1,4 @@
-# Minerar e vender v3 — JsMacros
+# Minerar e vender v4 — JsMacros
 
 Copie todo o conteúdo de `minerar-vender.txt` para um novo script JavaScript
 do JsMacros. Vincule a F7, ao pressionar, sem repetição. A mesma tecla inicia
@@ -39,11 +39,17 @@ da versão do JsMacros instalado. Não foi executado nessa instalação. Se ocor
 erro de método ausente, envie a mensagem e a versão exata do mod para adaptar.
 
 Validação: `node --check macros/jsmacros/minerar-vender.js` e
-`node macros/jsmacros/tests/minerar-vender.test.js`. Nove testes com APIs simuladas, incluindo movimento, mira e buracos;
+`node macros/jsmacros/tests/minerar-vender.test.js`. Dez testes com APIs simuladas, incluindo movimento, mira e buracos;
 não validam o menu, a mineração ou a venda no servidor real.
 
-A v3 tolera altura dos pés ligeiramente abaixo de um inteiro (por exemplo,
+A v4 tolera altura dos pés ligeiramente abaixo de um inteiro (por exemplo,
 63,999999 em vez de 64). Pedra e minérios conhecidos não dependem do método
 `getBlockStateHelper` para serem reconhecidos como apoio. Os demais blocos
 continuam exigindo estado sólido. O chat informa mudança de nível, ausência
 de passagem, falta de alvo ou erro da API. Envie o aviso exato se continuar parado.
+
+A v4 aceita `null` como ar nos pés/cabeça, comportamento observado no fork
+1.8.9 do usuário. Exige apoio não nulo e sólido sob cada canto do jogador.
+Também rejeita chunks não carregados quando `World.isChunkLoaded` está disponível.
+O teste que representa ar como `null` confirma movimento e mineração sem
+passar por buracos. Isso não substitui a validação na instalação real.

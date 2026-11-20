@@ -76,13 +76,14 @@ test('manual menus pause mining and disconnect stops the script', () => {
     };
     f.run(); assert(!f.s.attack); assert.strictEqual(f.commands.length, 0);
 });
-function autonomousCase(playerY, stateAvailable) {
+function autonomousCase(playerY, stateAvailable, nullAir = false) {
     const keys = new Map(), removed = new Set();
     const p = { x: 0.5, z: 0.5, yaw: 0, pitch: 35, getX() { return this.x; }, getZ() { return this.z; },
         getY: () => playerY, getYaw() { return this.yaw; }, getPitch() { return this.pitch; },
         lookAt(yaw, pitch) { this.yaw = yaw; this.pitch = pitch; } };
     function block(x, y, z) {
         const solid = y === 63 && Math.abs(x) < 10 && Math.abs(z) < 10 && !removed.has(`${x},${z}`);
+        if (!solid && nullAir) return null;
         return { getId: () => solid ? 'minecraft:lapis_ore' : 'minecraft:air',
             getBlockStateHelper: stateAvailable ? () => ({ isSolid: () => solid, isLiquid: () => false }) : undefined };
     }
@@ -92,13 +93,13 @@ function autonomousCase(playerY, stateAvailable) {
             const x = Math.floor(p.x - Math.sin(r) * Math.cos(pitch) * t);
             const z = Math.floor(p.z + Math.cos(r) * Math.cos(pitch) * t);
             const y = Math.floor(65.62 - Math.sin(pitch) * t), b = block(x, y, z);
-            if (b.getId() !== 'minecraft:air') return Object.assign(b, { getX: () => x, getY: () => y, getZ: () => z });
+            if (b && b.getId() !== 'minecraft:air') return Object.assign(b, { getX: () => x, getY: () => y, getZ: () => z });
         }
         return null;
     }
     const ctx = vm.createContext({ GlobalVars: { getString: () => '' }, Player: { getPlayer: () => p, rayTraceBlock: ray },
         Hud: { getOpenScreen: () => null }, Chat: { log() {} },
-        KeyBind: { keyBind: (key, value) => keys.set(key, value) }, World: { getBlock: block },
+        KeyBind: { keyBind: (key, value) => keys.set(key, value) }, World: { getBlock: block, isChunkLoaded: () => true },
         testHook: null });
     const script = original.replace('    GlobalVars.putString(RUN, token);',
         '    testHook = { step: mineStep, stop: release }; return; GlobalVars.putString(RUN, token);');
@@ -127,4 +128,5 @@ function autonomousCase(playerY, stateAvailable) {
 test('autonomous mining aims at ore, moves and avoids holes and the configured boundary', () => autonomousCase(64, true));
 test('rounding just below integer feet height does not mistake the floor for a wall', () => autonomousCase(63.999999, true));
 test('known ore supports movement when the block-state helper is absent', () => autonomousCase(64, false));
+test('1.8.9 air represented by null still allows walking and selecting ore with verified support', () => autonomousCase(64, false, true));
 console.log(count + ' tests passed (mocked JsMacros APIs).');
