@@ -76,15 +76,15 @@ test('manual menus pause mining and disconnect stops the script', () => {
     };
     f.run(); assert(!f.s.attack); assert.strictEqual(f.commands.length, 0);
 });
-test('autonomous mining aims at ore, moves and avoids holes and the configured boundary', () => {
+function autonomousCase(playerY, stateAvailable) {
     const keys = new Map(), removed = new Set();
     const p = { x: 0.5, z: 0.5, yaw: 0, pitch: 35, getX() { return this.x; }, getZ() { return this.z; },
-        getY: () => 64, getYaw() { return this.yaw; }, getPitch() { return this.pitch; },
+        getY: () => playerY, getYaw() { return this.yaw; }, getPitch() { return this.pitch; },
         lookAt(yaw, pitch) { this.yaw = yaw; this.pitch = pitch; } };
     function block(x, y, z) {
         const solid = y === 63 && Math.abs(x) < 10 && Math.abs(z) < 10 && !removed.has(`${x},${z}`);
         return { getId: () => solid ? 'minecraft:lapis_ore' : 'minecraft:air',
-            getBlockStateHelper: () => ({ isSolid: () => solid, isLiquid: () => false }) };
+            getBlockStateHelper: stateAvailable ? () => ({ isSolid: () => solid, isLiquid: () => false }) : undefined };
     }
     function ray() {
         const r = p.yaw * Math.PI / 180, pitch = p.pitch * Math.PI / 180;
@@ -123,5 +123,8 @@ test('autonomous mining aims at ore, moves and avoids holes and the configured b
     assert(removed.size >= 3, 'did not choose and break ore');
     assert(moved >= 20, 'did not move through mine');
     ctx.testHook.stop(); assert(!keys.get('key.forward') && !keys.get('key.attack'));
-});
+}
+test('autonomous mining aims at ore, moves and avoids holes and the configured boundary', () => autonomousCase(64, true));
+test('rounding just below integer feet height does not mistake the floor for a wall', () => autonomousCase(63.999999, true));
+test('known ore supports movement when the block-state helper is absent', () => autonomousCase(64, false));
 console.log(count + ' tests passed (mocked JsMacros APIs).');

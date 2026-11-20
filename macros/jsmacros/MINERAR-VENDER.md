@@ -1,4 +1,4 @@
-# Minerar e vender v2 — JsMacros
+# Minerar e vender v3 — JsMacros
 
 Copie todo o conteúdo de `minerar-vender.txt` para um novo script JavaScript
 do JsMacros. Vincule a F7, ao pressionar, sem repetição. A mesma tecla inicia
@@ -39,5 +39,11 @@ da versão do JsMacros instalado. Não foi executado nessa instalação. Se ocor
 erro de método ausente, envie a mensagem e a versão exata do mod para adaptar.
 
 Validação: `node --check macros/jsmacros/minerar-vender.js` e
-`node macros/jsmacros/tests/minerar-vender.test.js`. Sete testes com APIs simuladas, incluindo movimento, mira e buracos;
+`node macros/jsmacros/tests/minerar-vender.test.js`. Nove testes com APIs simuladas, incluindo movimento, mira e buracos;
 não validam o menu, a mineração ou a venda no servidor real.
+
+A v3 tolera altura dos pés ligeiramente abaixo de um inteiro (por exemplo,
+63,999999 em vez de 64). Pedra e minérios conhecidos não dependem do método
+`getBlockStateHelper` para serem reconhecidos como apoio. Os demais blocos
+continuam exigindo estado sólido. O chat informa mudança de nível, ausência
+de passagem, falta de alvo ou erro da API. Envie o aviso exato se continuar parado.

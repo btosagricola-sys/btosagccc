@@ -7,7 +7,7 @@
     var AUTOWALK = true;
     var RADIUS = 16; // Limite de deslocamento a partir do ponto onde ligou.
     var origin = null, target = null, workCycle = 0, miningHeading = 0;
-    var blockCache = {};
+    var blockCache = {}, lastNotice = "";
     var active = GlobalVars.getString(RUN);
     if (active) { GlobalVars.putString(STOP, active); return; }
     if (!Player.getPlayer() || Hud.getOpenScreen() !== null) {
@@ -54,13 +54,24 @@
     function minable(block) {
         return block && /^(minecraft:)?(stone|cobblestone|coal_ore|iron_ore|gold_ore|lapis_ore|redstone_ore|lit_redstone_ore|diamond_ore|emerald_ore|quartz_ore|lapis_block|diamond_block|emerald_block|gold_block|iron_block|coal_block|redstone_block)$/.test(String(block.getId()));
     }
+    function notice(message) {
+        if (message !== lastNotice) {
+            lastNotice = message; Chat.log("[Minerar] " + message);
+        }
+    }
+    function groundSolid(block) {
+        // Pedra/minerios conhecidos dispensam metodos de estado que variam entre forks.
+        if (minable(block)) return true;
+        if (!block || typeof block.getBlockStateHelper !== "function") return false;
+        var state = block.getBlockStateHelper();
+        return state.isSolid() && !state.isLiquid();
+    }
     function safePosition(x, z) {
         if (Math.abs(x - origin.x) > RADIUS || Math.abs(z - origin.z) > RADIUS) return false;
         for (var ox = -1; ox <= 1; ox += 2) for (var oz = -1; oz <= 1; oz += 2) {
             var bx = Math.floor(x + ox * 0.3), bz = Math.floor(z + oz * 0.3);
             var ground = getBlock(bx, origin.y - 1, bz);
-            if (!ground || !ground.getBlockStateHelper().isSolid()
-                    || ground.getBlockStateHelper().isLiquid()
+            if (!groundSolid(ground)
                     || !air(getBlock(bx, origin.y, bz)) || !air(getBlock(bx, origin.y + 1, bz))) return false;
         }
         return true;
@@ -88,17 +99,26 @@
     function mineStep(p) {
         blockCache = {}; workCycle++;
         if (!origin) {
-            origin = { x: p.getX(), y: Math.floor(p.getY()), z: p.getZ() };
+            origin = { x: p.getX(), y: Math.ceil(p.getY() - 0.01), z: p.getZ() };
             miningHeading = p.getYaw();
         }
-        if (Math.abs(p.getY() - origin.y) > 0.35) { release(); return; }
+        if (Math.abs(p.getY() - origin.y) > 0.35) {
+            release(); notice("Nivel diferente do inicial: pes Y " + p.getY() + ", esperado " + origin.y + ". Volte ao piso inicial."); return;
+        }
         // Escolhe uma direcao com apoio antes de mirar outro bloco.
         if (!safeAhead(p, miningHeading)) {
             var found = false, offsets = [45, -45, 90, -90, 135, -135, 180];
             for (var i = 0; i < offsets.length; i++) if (safeAhead(p, miningHeading + offsets[i])) {
                 miningHeading += offsets[i]; found = true; break;
             }
-            if (!found) { release(); return; }
+            if (!found) {
+                release();
+                var bx = Math.floor(p.getX()), bz = Math.floor(p.getZ());
+                var floor = getBlock(bx, origin.y - 1, bz), feet = getBlock(bx, origin.y, bz);
+                notice("Sem passagem com apoio. Chao=" + (floor ? floor.getId() : "nao carregado")
+                    + ", pes=" + (feet ? feet.getId() : "nao carregado") + ", Y=" + p.getY() + ".");
+                return;
+            }
             target = null;
         }
         if (target) {
@@ -106,6 +126,8 @@
             if (distance < 1.5 || distance > 3.5 || !minable(getBlock(target.x, origin.y - 1, target.z))) target = null;
         }
         if (!target) target = selectTarget(p, miningHeading);
+        if (!target) notice("Nenhum bloco reconhecido ao alcance. Aproxime-se de pedra ou minerio; limite de 16 blocos do inicio.");
+        else if (lastNotice !== "Selecionando e minerando blocos.") notice("Selecionando e minerando blocos.");
         var aim = miningHeading, pitch = 35;
         if (target) {
             var dx = target.x + 0.5 - p.getX(), dz = target.z + 0.5 - p.getZ();
@@ -123,7 +145,7 @@
     }
     GlobalVars.putString(RUN, token); GlobalVars.putString(STOP, "");
     try {
-        Chat.log("[Minerar] Minerar/Vender v2: movimento e mira automaticos, raio 16 blocos, /vender a cada 2 minutos. Mesma tecla para parar.");
+        Chat.log("[Minerar] Minerar/Vender v3: movimento e mira automaticos, raio 16 blocos, /vender a cada 2 minutos. Mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === token && GlobalVars.getString(STOP) !== token) {
             if (!Player.getPlayer()) { reason = "desconectou"; break; }
             var screen = Hud.getOpenScreen();
