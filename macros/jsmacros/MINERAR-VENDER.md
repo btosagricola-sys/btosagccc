@@ -1,4 +1,4 @@
-# Minerar e vender v5 — JsMacros
+# Minerar e vender v7 — JsMacros
 
 Substitua todo o código de seu script pelo conteúdo de `minerar-vender.txt`.
 Selecione esse arquivo (não a pasta Macros) e execute pelo JsMacros. Também
@@ -31,7 +31,7 @@ apoio; chunks descarregados são rejeitados quando há API de consulta.
 
 ## Venda
 
-Após dois minutos pausa movimento e ataque, envia `/vender`, procura um único
+Após dois minutos ou ao receber “inventário cheio” no chat, pausa movimento e ataque, envia `/vender`, procura um único
 botão `Vender` no menu `Vender`, clica uma vez e fecha após aproximadamente um
 segundo. Se o servidor fechar ao clicar, retoma automaticamente. O próximo
 intervalo de dois minutos começa após a retomada. Confira o recibo da venda:
@@ -52,6 +52,23 @@ node --check macros/jsmacros/minerar-vender.js
 node macros/jsmacros/tests/minerar-vender.test.js
 ```
 
-11 testes com APIs simuladas: venda, pausa, desconexão, mira, aproximação,
+15 testes com APIs simuladas: venda, pausa, desconexão, mira, aproximação,
 ar null, altura fracionária e continuidade dentro de buraco de um bloco.
 Não reproduzem integralmente a física, tempo de quebra ou latência reais.
+
+## Reset da mina e retomada
+
+Ao subir mais de 0,75 bloco de uma vez ou mudar de posição bruscamente,
+limpa o alvo anterior e bloqueios temporários, solta as ações por um ciclo
+e procura blocos na posição atual. Não reinicia o intervalo de venda.
+Se um alvo fica bloqueado ou não muda em quatro segundos, tenta outro.
+Não depende do texto específico de reset enviado pelo servidor.
+
+Inclui esponja normal/molhada. Bedrock não é alvo de ataque; alvos encobertos
+por ela são adiados. A venda busca o botão pelo nome `Vender` (verde na imagem),
+não pela cor da interface. O aviso de inventário usa `RecvMessage` e depende
+dessa API no fork instalado; a venda a cada dois minutos continua independente.
+Depois de vender, aguarda cinco segundos para aceitar outro aviso de cheio.
+O chat mostra o motivo ao enviar `/vender`. Se constar “Parada: desativada”,
+o script recebeu uma solicitação de parada: execute uma vez para iniciar
+e deixe a execução ativa.

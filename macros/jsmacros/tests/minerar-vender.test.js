@@ -2,7 +2,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const original = fs.readFileSync(require('path').join(__dirname, '../minerar-vender.js'), 'utf8');
 const source = original.replace("var AUTOWALK = true;", "var AUTOWALK = false;");
 function fixture() {
-    const vars = new Map(), commands = [], clicks = [], logs = [];
+    const vars = new Map(), commands = [], clicks = [], logs = [], listeners = new Set();
     const s = { tick: 0, menu: null, title: 'Vender', held: false, duplicate: false,
         connected: true, attack: false, closed: 0, limit: 2500, onTick: null, onSay: null, onClick: null };
     const txt = str => ({ getString: () => str });
@@ -16,6 +16,8 @@ function fixture() {
     let run;
     const ctx = vm.createContext({
         Date: { now: () => s.tick * 50 }, Math,
+        JavaWrapper: { methodToJava: fn => fn },
+        JsMacros: { on: (event, fn) => { assert.strictEqual(event, 'RecvMessage'); listeners.add(fn); return fn; }, off: fn => listeners.delete(fn) },
         GlobalVars: { getString: key => vars.get(key) || '', putString: (key, value) => vars.set(key, value) },
         Player: { getPlayer: () => s.connected ? {} : null, openInventory: () => inv },
         Hud: { getOpenScreen: () => s.menu },
@@ -31,7 +33,7 @@ function fixture() {
         } }
     });
     run = () => vm.runInContext(source, ctx);
-    return { s, commands, clicks, logs, run };
+    return { s, commands, clicks, logs, run, listeners, emit: text => { for (const fn of listeners) fn({ text: txt(text) }); } };
 }
 let count = 0;
 function test(name, fn) { fn(); count++; console.log('OK: ' + name); }
@@ -130,7 +132,7 @@ test('autonomous mining aims at ore, moves and avoids holes and the configured b
 test('rounding just below integer feet height does not mistake the floor for a wall', () => autonomousCase(63.999999, true));
 test('known ore supports movement when the block-state helper is absent', () => autonomousCase(64, false));
 test('1.8.9 air represented by null still allows walking and selecting ore with verified support', () => autonomousCase(64, false, true));
-test('continues mining inside a one-block pit and approaches newly selected blocks', () => {
+function pitCase(resetAt) {
     const keys = new Map(), removed = new Set(['0,63,0']);
     const p = { x: 0.5, y: 63, z: 0.5, yaw: 0, pitch: 35,
         getX() { return this.x; }, getY() { return this.y; }, getZ() { return this.z; }, getYaw() { return this.yaw; },
@@ -153,11 +155,16 @@ test('continues mining inside a one-block pit and approaches newly selected bloc
         KeyBind: { keyBind: (key, value) => keys.set(key, value) }, testHook: null });
     vm.runInContext(original.replace('    GlobalVars.putString(RUN, token);',
         '    testHook = { step: mineStep, safe: safePosition }; return; GlobalVars.putString(RUN, token);'), ctx);
-    let moved = 0, wallMined = false;
+    let moved = 0, wallMined = false, afterReset = 0;
     for (let tick = 0; tick < 400; tick++) {
+        if (tick === resetAt) {
+            removed.clear(); p.x = 0.5; p.z = 0.5; p.y = 64;
+        }
         ctx.testHook.step(p);
+        if (tick === resetAt) assert(!keys.get('key.attack') && !keys.get('key.forward'), 'reset did not release stale input');
         if (keys.get('key.attack')) {
             const hit = ray(); assert(hit);
+            if (resetAt !== undefined && tick > resetAt) afterReset++;
             if (hit.getY() >= p.y) wallMined = true;
             removed.add(`${hit.getX()},${hit.getY()},${hit.getZ()}`);
         }
@@ -172,5 +179,33 @@ test('continues mining inside a one-block pit and approaches newly selected bloc
     assert(wallMined, 'did not clear the block in front of the pit');
     assert(removed.size > 8 && moved > 20, 'did not continue after the first block: removed=' + removed.size + ', moved=' + moved);
     assert(ctx.testHook.safe(20, 0, 64), 'old sixteen-block boundary still active');
+    if (resetAt !== undefined) assert(afterReset > 5, 'did not resume after mine reset');
+}
+test('continues mining inside a one-block pit and approaches newly selected blocks', () => pitCase());
+test('mine regeneration and teleport to the surface releases stale target and resumes mining', () => pitCase(150));
+test('server inventory-full alert immediately sends sell command and clicks green Vender button', () => {
+    const f = fixture(); f.s.limit = 100;
+    f.s.onTick = () => {
+        if (f.s.tick === 20) f.emit('§eSeu inventário está cheio! Alguns itens caíram no chão.');
+    };
+    f.run();
+    assert.deepStrictEqual(f.commands, [['/vender', 20]]);
+    assert.deepStrictEqual(f.clicks, [1]);
+    assert.strictEqual(f.s.closed, 1);
+    assert.strictEqual(f.listeners.size, 0);
+});
+test('unrelated full message does not trigger an inventory sale', () => {
+    const f = fixture(); f.s.limit = 100;
+    f.s.onTick = () => { if (f.s.tick === 20) f.emit('O servidor está cheio!'); };
+    f.run(); assert.strictEqual(f.commands.length, 0);
+});
+test('sponge is minable and bedrock remains excluded', () => {
+    const ctx = vm.createContext({ GlobalVars: { getString: () => '' }, Player: { getPlayer: () => ({}) },
+        Hud: { getOpenScreen: () => null }, testHook: null });
+    vm.runInContext(original.replace('    GlobalVars.putString(RUN, token);',
+        '    testHook = minable; return; GlobalVars.putString(RUN, token);'), ctx);
+    assert(ctx.testHook({ getId: () => 'minecraft:sponge' }));
+    assert(ctx.testHook({ getId: () => 'minecraft:wet_sponge' }));
+    assert(!ctx.testHook({ getId: () => 'minecraft:bedrock' }));
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

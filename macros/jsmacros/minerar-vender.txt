@@ -8,6 +8,7 @@
     var RADIUS = 0; // 0 = sem limite artificial de deslocamento.
     var origin = null, target = null, workCycle = 0, miningHeading = 0;
     var blockCache = {}, lastNotice = "";
+    var lastPosition = null, avoided = {}, targetAge = 0, trackedTarget = "", blockedAim = 0;
     var active = GlobalVars.getString(RUN);
     if (active) { GlobalVars.putString(STOP, active); return; }
     if (!Player.getPlayer() || Hud.getOpenScreen() !== null) {
@@ -16,6 +17,7 @@
     var token = String(Date.now()) + ":" + String(Math.random());
     var nextSale = Date.now() + INTERVAL_MS;
     var stage = "mine", ticks = 0, reason = "desativada";
+    var fullInventory = false, fullListener = null, fullCooldown = 0;
     function text(value) {
         return value && typeof value.getString === "function" ? String(value.getString()) : String(value || "");
     }
@@ -54,7 +56,7 @@
             || /^(minecraft:)?(air|cave_air|void_air)$/.test(String(block.getId()));
     }
     function minable(block) {
-        return block && /^(minecraft:)?(stone|cobblestone|coal_ore|iron_ore|gold_ore|lapis_ore|redstone_ore|lit_redstone_ore|diamond_ore|emerald_ore|quartz_ore|lapis_block|diamond_block|emerald_block|gold_block|iron_block|coal_block|redstone_block)$/.test(String(block.getId()));
+        return block && /^(minecraft:)?(sponge|wet_sponge|stone|cobblestone|coal_ore|iron_ore|gold_ore|lapis_ore|redstone_ore|lit_redstone_ore|diamond_ore|emerald_ore|quartz_ore|lapis_block|diamond_block|emerald_block|gold_block|iron_block|coal_block|redstone_block)$/.test(String(block.getId()));
     }
     function notice(message) {
         if (message !== lastNotice) {
@@ -101,6 +103,9 @@
             var rx = x + 0.5 - p.getX(), rz = z + 0.5 - p.getZ(), dist = Math.sqrt(rx * rx + rz * rz);
             if (RADIUS > 0 && (Math.abs(x + 0.5 - origin.x) > RADIUS || Math.abs(z + 0.5 - origin.z) > RADIUS)) continue;
             for (var y = level - 1; y <= level + 1; y++) {
+                var key = x + "," + y + "," + z;
+                if (avoided[key] && avoided[key] > workCycle) continue;
+                if (avoided[key]) delete avoided[key];
                 var vertical = y + 0.5 - p.getY() - 1.62;
                 if ((y < level && dist < 1.5) || dist * dist + vertical * vertical > 4.3 * 4.3 || underPlayer(p, x, y, z)
                         || !minable(getBlock(x, y, z))) continue;
@@ -113,6 +118,16 @@
     }
     function mineStep(p) {
         blockCache = {}; workCycle++;
+        var relocated = lastPosition && (p.getY() - lastPosition.y > 0.75
+            || lastPosition.y - p.getY() > 1.5
+            || Math.pow(p.getX() - lastPosition.x, 2) + Math.pow(p.getZ() - lastPosition.z, 2) > 16);
+        lastPosition = { x: p.getX(), y: p.getY(), z: p.getZ() };
+        if (relocated) {
+            target = null; avoided = {}; targetAge = 0; trackedTarget = ""; blockedAim = 0;
+            miningHeading = p.getYaw();
+            release(); notice("Reposicionado/reset detectado: procurando os blocos novos.");
+            return;
+        }
         if (!origin) {
             origin = { x: p.getX(), y: Math.ceil(p.getY() - 0.01), z: p.getZ() };
             miningHeading = p.getYaw();
@@ -128,6 +143,15 @@
             }
         }
         if (!target) target = selectTarget(p, miningHeading);
+        var targetKey = target ? target.x + "," + target.y + "," + target.z : "";
+        if (targetKey === trackedTarget) targetAge++;
+        else { trackedTarget = targetKey; targetAge = 0; blockedAim = 0; }
+        // Um alvo antigo que nunca quebra nao impede a tentativa dos outros.
+        if (target && targetAge >= 80) {
+            avoided[targetKey] = workCycle + 100;
+            target = null; trackedTarget = ""; targetAge = 0; blockedAim = 0;
+            release(); return;
+        }
         var aim = miningHeading, pitch = 35, horizontal = Infinity;
         if (target) {
             notice("Selecionando e minerando blocos.");
@@ -148,6 +172,12 @@
         // Ataca o primeiro minerio visivel; nao fica esperando um alvo oculto atras dele.
         var attack = hit && minable(hit) && !underPlayer(p, hit.getX(), hit.getY(), hit.getZ());
         KeyBind.keyBind("key.attack", !!attack);
+        if (target && !attack && Math.abs(delta) <= 12) blockedAim++;
+        else blockedAim = 0;
+        if (target && ((hit && !minable(hit)) || blockedAim >= 12)) {
+            avoided[targetKey] = workCycle + 100;
+            target = null; blockedAim = 0;
+        }
         // Minera perto parado; aproxima somente quando o alvo esta mais distante.
         var approach = !target || horizontal > 1.4;
         KeyBind.keyBind("key.forward", approach && Math.abs(delta) < 30 && safeAhead(p, p.getYaw()));
@@ -155,17 +185,30 @@
     }
     GlobalVars.putString(RUN, token); GlobalVars.putString(STOP, "");
     try {
-        Chat.log("[Minerar] Minerar/Vender v5: movimento e mira automaticos, aproxima e minera em niveis diferentes, /vender a cada 2 minutos. Mesma tecla para parar.");
+        if (typeof JsMacros !== "undefined" && typeof JavaWrapper !== "undefined") {
+            try {
+                fullListener = JsMacros.on("RecvMessage", JavaWrapper.methodToJava(function (event) {
+                    var message = plain(event.text);
+                    if (stage === "mine" && Date.now() >= fullCooldown
+                            && /invent[aá]rio.*cheio|inventory.*full/.test(message)) fullInventory = true;
+                }));
+            } catch (listenError) {
+                Chat.log("[Minerar] Aviso de inventario indisponivel; mantida venda por tempo: " + listenError);
+            }
+        }
+        Chat.log("[Minerar] Minerar/Vender v7: movimento e mira automaticos, aproxima e minera em niveis diferentes, /vender a cada 2 minutos. Mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === token && GlobalVars.getString(STOP) !== token) {
             if (!Player.getPlayer()) { reason = "desconectou"; break; }
             var screen = Hud.getOpenScreen();
             // Nunca deixa o ataque pressionado em menus ou durante a venda.
-            if (stage !== "mine" || screen !== null || Date.now() >= nextSale) release();
+            if (stage !== "mine" || screen !== null || Date.now() >= nextSale || fullInventory) release();
             else if (!AUTOWALK) KeyBind.keyBind("key.attack", true);
             if (stage === "mine") {
                 if (screen !== null) { Client.waitTick(); continue; }
-                if (Date.now() >= nextSale) {
-                    KeyBind.keyBind("key.attack", false);
+                if (Date.now() >= nextSale || fullInventory) {
+                    release();
+                    Chat.log("[Minerar] Enviando /vender: " + (fullInventory ? "inventario cheio" : "2 minutos decorridos") + ".");
+                    fullInventory = false;
                     Chat.say(COMMAND);
                     stage = "open"; ticks = 0;
                     Chat.log("[Minerar] Abrindo /vender.");
@@ -184,7 +227,7 @@
                 if (stage === "open" && ++ticks >= 100) throw Error("Menu/botao Vender nao apareceu em 5 segundos.");
             } else if (stage === "close") {
                 if (screen === null) {
-                    stage = "mine"; nextSale = Date.now() + INTERVAL_MS;
+                    stage = "mine"; nextSale = Date.now() + INTERVAL_MS; fullCooldown = Date.now() + 5000;
                     Chat.log("[Minerar] Retomando a mineracao; confira o recibo da venda no chat.");
                 } else if (++ticks >= 20) {
                     var current = Player.openInventory();
@@ -193,7 +236,7 @@
                 }
             } else if (stage === "closing") {
                 if (screen === null) {
-                    stage = "mine"; nextSale = Date.now() + INTERVAL_MS;
+                    stage = "mine"; nextSale = Date.now() + INTERVAL_MS; fullCooldown = Date.now() + 5000;
                     Chat.log("[Minerar] Retomando a mineracao; confira o recibo da venda no chat.");
                 } else if (++ticks >= 40) throw Error("O menu de venda nao fechou.");
             }
@@ -202,6 +245,9 @@
     } catch (error) {
         reason = String(error);
     } finally {
+        if (fullListener !== null) {
+            try { JsMacros.off(fullListener); } catch (ignored) {}
+        }
         release();
         if (GlobalVars.getString(RUN) === token) {
             GlobalVars.putString(RUN, ""); GlobalVars.putString(STOP, "");
