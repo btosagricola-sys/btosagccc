@@ -4,13 +4,13 @@ const source = original.replace("var AUTOWALK = true;", "var AUTOWALK = false;")
 function fixture() {
     const vars = new Map(), commands = [], clicks = [], logs = [], listeners = new Set();
     const s = { tick: 0, menu: null, title: 'Vender', held: false, duplicate: false,
-        connected: true, attack: false, closed: 0, limit: 2500, onTick: null, onSay: null, onClick: null };
+        nullCursor: false, nullSlots: false, emptyMapping: false, fallbackName: 'Vender', connected: true, attack: false, closed: 0, limit: 2500, onTick: null, onSay: null, onClick: null };
     const txt = str => ({ getString: () => str });
     const inv = {
-        getContainerTitle: () => s.title, getHeld: () => ({ isEmpty: () => !s.held }),
-        getSlots: section => { assert.strictEqual(section, 'container'); return [0, 1, 2]; },
-        getSlot: slot => ({ isEmpty: () => false, getName: () => txt(slot === 1 || (s.duplicate && slot === 2) ? '§aVender' : 'Outro') }),
-        click: slot => { assert(!s.attack); clicks.push(slot); if (s.onClick) s.onClick(); },
+        getContainerTitle: () => s.title, getHeld: () => s.nullCursor ? null : ({ isEmpty: () => !s.held }),
+        getSlots: section => { assert.strictEqual(section, 'container'); return s.emptyMapping ? [] : [0, 1, 2]; },
+        getSlot: slot => s.nullSlots && slot !== 10 ? null : ({ isEmpty: () => false, getName: () => txt(slot === 10 ? s.fallbackName : slot === 1 || (s.duplicate && slot === 2) ? '§aVender' : 'Outro') }),
+        click: (slot, button) => { assert.strictEqual(button, 0); assert(!s.attack); clicks.push(slot); if (s.onClick) s.onClick(); },
         close: () => { assert(!s.attack); s.closed++; s.menu = null; }
     };
     let run;
@@ -70,7 +70,7 @@ test('missing menu times out without sending repeated commands', () => {
 test('manual menus pause mining and disconnect stops the script', () => {
     const f = fixture();
     f.s.onTick = () => {
-        if (f.s.tick === 10) f.s.menu = {};
+        if (f.s.tick === 10) { f.s.title = 'Inventario'; f.s.menu = {}; }
         if (f.s.tick === 12) assert(!f.s.attack);
         if (f.s.tick === 15) f.s.menu = null;
         if (f.s.tick === 17) assert(f.s.attack);
@@ -207,5 +207,19 @@ test('sponge is minable and bedrock remains excluded', () => {
     assert(ctx.testHook({ getId: () => 'minecraft:sponge' }));
     assert(ctx.testHook({ getId: () => 'minecraft:wet_sponge' }));
     assert(!ctx.testHook({ getId: () => 'minecraft:bedrock' }));
+});
+test('legacy null cursor and empty slot mapping clicks verified sale button at slot ten', () => {
+    const f = fixture(); f.s.nullCursor = true; f.s.nullSlots = true; f.s.emptyMapping = true;
+    f.run(); assert.deepStrictEqual(f.clicks, [10]); assert.strictEqual(f.s.closed, 1);
+});
+test('slot-ten fallback never clicks an unrelated item', () => {
+    const f = fixture(); f.s.emptyMapping = true; f.s.fallbackName = 'Outro item';
+    f.s.limit = 2700; f.run(); assert.strictEqual(f.clicks.length, 0);
+});
+test('manually opened Vender menu is recognized and sold without waiting for next timer', () => {
+    const f = fixture(); f.s.limit = 100;
+    f.s.onTick = () => { if (f.s.tick === 10) f.s.menu = {}; };
+    f.run(); assert.strictEqual(f.commands.length, 0);
+    assert.deepStrictEqual(f.clicks, [1]); assert.strictEqual(f.s.closed, 1);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');

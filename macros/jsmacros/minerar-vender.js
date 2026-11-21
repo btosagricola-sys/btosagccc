@@ -27,14 +27,26 @@
     function title(inv) { return plain(inv.getContainerTitle()); }
     function saleMenu(inv) { return title(inv) === "vender"; }
     function button(inv) {
-        if (!inv.getHeld().isEmpty()) throw Error("Esvazie o item preso ao cursor antes da venda.");
-        var slots = inv.getSlots("container"), found = -1;
-        for (var i = 0; i < slots.length; i++) {
-            var item = inv.getSlot(slots[i]);
-            if (!item.isEmpty() && plain(item.getName()) === "vender") {
+        var held = inv.getHeld();
+        // No fork 1.8.9, cursor vazio pode ser null em vez de um ItemStack vazio.
+        if (held && !held.isEmpty()) throw Error("Esvazie o item preso ao cursor antes da venda.");
+        var slots = null, found = -1;
+        try { slots = inv.getSlots("container"); } catch (slotError) {}
+        var length = slots ? (typeof slots.length === "number" ? slots.length : slots.size()) : 0;
+        for (var i = 0; i < length; i++) {
+            var index = typeof slots.length === "number" ? slots[i] : slots.get(i);
+            var item = inv.getSlot(index);
+            // Slot vazio tambem pode ser null. O nome confirma o botao.
+            if (item && plain(item.getName()) === "vender") {
                 if (found !== -1) throw Error("Mais de um botao Vender encontrado; nenhum foi clicado.");
-                found = slots[i];
+                found = index;
             }
+        }
+        if (found === -1) {
+            // Menu da imagem: 3 linhas, botao na segunda linha/segunda coluna.
+            // Slot 10 ainda e conferido pelo nome; nunca clica pela posicao apenas.
+            var fallback = inv.getSlot(10);
+            if (fallback && plain(fallback.getName()) === "vender") found = 10;
         }
         return found;
     }
@@ -196,7 +208,7 @@
                 Chat.log("[Minerar] Aviso de inventario indisponivel; mantida venda por tempo: " + listenError);
             }
         }
-        Chat.log("[Minerar] Minerar/Vender v7: movimento e mira automaticos, aproxima e minera em niveis diferentes, /vender a cada 2 minutos. Mesma tecla para parar.");
+        Chat.log("[Minerar] Minerar/Vender v8: movimento e mira automaticos, aproxima e minera em niveis diferentes, /vender a cada 2 minutos. Mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === token && GlobalVars.getString(STOP) !== token) {
             if (!Player.getPlayer()) { reason = "desconectou"; break; }
             var screen = Hud.getOpenScreen();
@@ -204,7 +216,14 @@
             if (stage !== "mine" || screen !== null || Date.now() >= nextSale || fullInventory) release();
             else if (!AUTOWALK) KeyBind.keyBind("key.attack", true);
             if (stage === "mine") {
-                if (screen !== null) { Client.waitTick(); continue; }
+                if (screen !== null) {
+                    var opened = Player.openInventory();
+                    if (saleMenu(opened)) {
+                        stage = "open"; ticks = 0;
+                        Chat.log("[Minerar] Menu Vender reconhecido; aguardando carregar os itens.");
+                    }
+                    Client.waitTick(); continue;
+                }
                 if (Date.now() >= nextSale || fullInventory) {
                     release();
                     Chat.log("[Minerar] Enviando /vender: " + (fullInventory ? "inventario cheio" : "2 minutos decorridos") + ".");
@@ -217,11 +236,11 @@
                 if (screen !== null) {
                     var inv = Player.openInventory();
                     if (!saleMenu(inv)) throw Error("Menu inesperado; deixado aberto sem clicar.");
-                    var slot = button(inv);
+                    var slot = ticks >= 6 ? button(inv) : -1;
                     if (slot !== -1) {
-                        inv.click(slot);
+                        inv.click(slot, 0);
                         stage = "close"; ticks = 0;
-                        Chat.log("[Minerar] Clicou em Vender; aguardando o servidor e fechando o menu.");
+                        Chat.log("[Minerar] Clique esquerdo em Vender, slot " + slot + "; aguardando o servidor e fechando o menu.");
                     }
                 }
                 if (stage === "open" && ++ticks >= 100) throw Error("Menu/botao Vender nao apareceu em 5 segundos.");

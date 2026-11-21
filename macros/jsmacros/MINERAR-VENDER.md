@@ -1,4 +1,4 @@
-# Minerar e vender v7 — JsMacros
+# Minerar e vender v8 — JsMacros
 
 Substitua todo o código de seu script pelo conteúdo de `minerar-vender.txt`.
 Selecione esse arquivo (não a pasta Macros) e execute pelo JsMacros. Também
@@ -52,7 +52,7 @@ node --check macros/jsmacros/minerar-vender.js
 node macros/jsmacros/tests/minerar-vender.test.js
 ```
 
-15 testes com APIs simuladas: venda, pausa, desconexão, mira, aproximação,
+18 testes com APIs simuladas: venda, pausa, desconexão, mira, aproximação,
 ar null, altura fracionária e continuidade dentro de buraco de um bloco.
 Não reproduzem integralmente a física, tempo de quebra ou latência reais.
 
@@ -72,3 +72,14 @@ Depois de vender, aguarda cinco segundos para aceitar outro aviso de cheio.
 O chat mostra o motivo ao enviar `/vender`. Se constar “Parada: desativada”,
 o script recebeu uma solicitação de parada: execute uma vez para iniciar
 e deixe a execução ativa.
+
+## Clique no menu da versão 1.8.9
+
+A v8 aceita cursor e slots vazios como `null`, espera seis ticks para os itens
+do menu carregarem e usa clique esquerdo explícito. Se o mapeamento
+`container` não listar o botão, verifica o slot 10 mostrado na imagem. Só clica
+se o menu for `Vender` e o nome do item também for `Vender`. Botões duplicados
+continuam sendo rejeitados. Se abrir esse menu manualmente durante a execução,
+a macro também o reconhece e realiza a venda. Outros menus permanecem pausados.
+Caso continue parando, envie a linha completa após `[Minerar] Parada:`; as
+correções de compatibilidade não confirmam o motivo exato sem essa mensagem.
