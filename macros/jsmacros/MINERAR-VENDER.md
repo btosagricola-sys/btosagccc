@@ -1,4 +1,4 @@
-# Minerar e vender v9 — JsMacros
+# Minerar e vender v10 — JsMacros
 
 Substitua todo o código de seu script pelo conteúdo de `minerar-vender.txt`.
 Selecione esse arquivo (não a pasta Macros) e execute pelo JsMacros. Também
@@ -54,7 +54,7 @@ node --check macros/jsmacros/minerar-vender.js
 node macros/jsmacros/tests/minerar-vender.test.js
 ```
 
-18 testes com APIs simuladas: venda, pausa, desconexão, mira, aproximação,
+19 testes com APIs simuladas: venda, pausa, desconexão, mira, aproximação,
 ar null, altura fracionária e continuidade dentro de buraco de um bloco.
 Não reproduzem integralmente a física, tempo de quebra ou latência reais.
 
@@ -77,10 +77,20 @@ e deixe a execução ativa.
 
 ## Clique no menu da versão 1.8.9
 
-A v9 clica diretamente no slot 10 com `inv.click(10, 0)`, conforme solicitado
+A v10 clica diretamente no slot 10 com `inv.click(10, 0)`, conforme solicitado
 pelo usuário com base na imagem. Confere somente o título `Vender` antes do
 clique e espera seis ticks para carregar. Não chama `getHeld`, `getSlots`,
 `getSlot` ou `getName` durante a venda. Se abrir esse menu manualmente durante
 a execução, a macro também o reconhece e realiza a venda.
 Caso continue parando, envie a linha completa após `[Minerar] Parada:` para
 identificar se há outro método incompatível. Não foi executado no servidor real.
+
+## Câmera e escolha dos alvos
+
+A v10 seleciona alvos dentro de um cone frontal de 120 graus na direção do
+percurso, também limitados à frente da câmera. Descarta um alvo que ficou
+atrás depois do movimento. A rotação é limitada a seis graus por ciclo.
+Mudanças de percurso são concluídas antes de escolher novos alvos: não mistura
+a virada de saída com a mira de mineração. Pode virar para os lados ou para
+trás quando não houver mais alvos à frente, ou para sair de uma parede.
+Não elimina mudanças de direção necessárias para continuar a mineração.

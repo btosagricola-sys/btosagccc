@@ -9,6 +9,7 @@
     var RADIUS = 0; // 0 = sem limite artificial de deslocamento.
     var origin = null, target = null, workCycle = 0, miningHeading = 0;
     var blockCache = {}, lastNotice = "";
+    var routeTurn = null, lastRouteTurn = -100;
     var lastPosition = null, avoided = {}, targetAge = 0, trackedTarget = "", blockedAim = 0;
     var active = GlobalVars.getString(RUN);
     if (active) { GlobalVars.putString(STOP, active); return; }
@@ -84,7 +85,7 @@
         return y < level && x + 1 > p.getX() - 0.3 && x < p.getX() + 0.3
             && z + 1 > p.getZ() - 0.3 && z < p.getZ() + 0.3;
     }
-    function selectTarget(p, heading) {
+    function selectTarget(p, heading, planningTurn) {
         var best = null, score = -Infinity, r = heading * Math.PI / 180;
         var level = Math.ceil(p.getY() - 0.01);
         for (var dx = -4; dx <= 4; dx++) for (var dz = -4; dz <= 4; dz++) {
@@ -99,11 +100,21 @@
                 if ((y < level && dist < 1.5) || dist * dist + vertical * vertical > 4.3 * 4.3 || underPlayer(p, x, y, z)
                         || !minable(getBlock(x, y, z))) continue;
                 var ahead = dist > 0 ? (-Math.sin(r) * rx + Math.cos(r) * rz) / dist : 0;
+                // Nao escolhe blocos atras: mira somente no cone frontal de 120 graus.
+                var view = p.getYaw() * Math.PI / 180;
+                var visibleAhead = dist > 0 ? (-Math.sin(view) * rx + Math.cos(view) * rz) / dist : 0;
+                if (ahead < 0.5 || (!planningTurn && visibleAhead < 0.25)) continue;
                 var value = ahead * 3 - dist - Math.abs(vertical) * 0.25;
                 if (value > score) { score = value; best = { x: x, y: y, z: z }; }
             }
         }
         return best;
+    }
+    function finishRouteTurn(p) {
+        var delta = ((routeTurn - p.getYaw() + 180) % 360 + 360) % 360 - 180;
+        release();
+        p.lookAt(p.getYaw() + Math.max(-6, Math.min(6, delta)), 35);
+        if (Math.abs(delta) <= 6) routeTurn = null;
     }
     function mineStep(p) {
         blockCache = {}; workCycle++;
@@ -113,7 +124,7 @@
         lastPosition = { x: p.getX(), y: p.getY(), z: p.getZ() };
         if (relocated) {
             target = null; avoided = {}; targetAge = 0; trackedTarget = ""; blockedAim = 0;
-            miningHeading = p.getYaw();
+            miningHeading = p.getYaw(); routeTurn = null;
             release(); notice("Reposicionado/reset detectado: procurando os blocos novos.");
             return;
         }
@@ -121,16 +132,25 @@
             origin = { x: p.getX(), y: Math.ceil(p.getY() - 0.01), z: p.getZ() };
             miningHeading = p.getYaw();
         }
+        if (routeTurn !== null) { finishRouteTurn(p); return; }
+        if (target) {
+            var facing = p.getYaw() * Math.PI / 180;
+            var targetX = target.x + 0.5 - p.getX(), targetZ = target.z + 0.5 - p.getZ();
+            if (-Math.sin(facing) * targetX + Math.cos(facing) * targetZ <= 0) target = null;
+        }
         if (target && (!minable(getBlock(target.x, target.y, target.z))
                 || underPlayer(p, target.x, target.y, target.z)
                 || Math.pow(target.x + 0.5 - p.getX(), 2) + Math.pow(target.z + 0.5 - p.getZ(), 2)
                     + Math.pow(target.y + 0.5 - p.getY() - 1.62, 2) > 4.3 * 4.3)) target = null;
-        if (!safeAhead(p, miningHeading) && (!target || target.y < Math.ceil(p.getY() - 0.01))) {
+        if (workCycle - lastRouteTurn >= 20 && !safeAhead(p, miningHeading)
+                && (!target || target.y < Math.ceil(p.getY() - 0.01))) {
             var turns = [45, -45, 90, -90, 135, -135, 180];
             for (var t = 0; t < turns.length; t++) if (safeAhead(p, miningHeading + turns[t])) {
-                miningHeading += turns[t]; target = null; break;
+                miningHeading += turns[t]; target = null; routeTurn = miningHeading;
+                lastRouteTurn = workCycle; break;
             }
         }
+        if (routeTurn !== null) { finishRouteTurn(p); return; }
         if (!target) target = selectTarget(p, miningHeading);
         var targetKey = target ? target.x + "," + target.y + "," + target.z : "";
         if (targetKey === trackedTarget) targetAge++;
@@ -149,14 +169,28 @@
             aim = Math.atan2(-dx, dz) * 180 / Math.PI;
             pitch = Math.atan2(p.getY() + 1.62 - target.y - 0.5, horizontal) * 180 / Math.PI;
         } else {
-            notice("Nenhum bloco reconhecido ao alcance; procurando passagem.");
+            notice("Nenhum bloco reconhecido a frente; procurando outro trecho.");
+            if (workCycle - lastRouteTurn >= 20) {
+                var searchTurns = [45, -45, 90, -90, 135, -135, 180];
+                for (var j = 0; j < searchTurns.length; j++) {
+                    if (selectTarget(p, miningHeading + searchTurns[j], true)) {
+                        miningHeading += searchTurns[j]; routeTurn = miningHeading;
+                        lastRouteTurn = workCycle; finishRouteTurn(p); return;
+                    }
+                }
+            }
             var offsets = [0, 45, -45, 90, -90, 135, -135, 180];
             for (var i = 0; i < offsets.length; i++) if (safeAhead(p, miningHeading + offsets[i])) {
-                aim = miningHeading + offsets[i]; miningHeading = aim; break;
+                aim = miningHeading + offsets[i];
+                if (i !== 0 && workCycle - lastRouteTurn >= 20) {
+                    miningHeading = aim; routeTurn = aim; lastRouteTurn = workCycle;
+                    finishRouteTurn(p); return;
+                }
+                aim = miningHeading; break;
             }
         }
         var delta = ((aim - p.getYaw() + 180) % 360 + 360) % 360 - 180;
-        p.lookAt(p.getYaw() + Math.max(-12, Math.min(12, delta)), pitch);
+        p.lookAt(p.getYaw() + Math.max(-6, Math.min(6, delta)), pitch);
         var hit = target ? Player.rayTraceBlock(4.5, false) : null;
         // Ataca o primeiro minerio visivel; nao fica esperando um alvo oculto atras dele.
         var attack = hit && minable(hit) && !underPlayer(p, hit.getX(), hit.getY(), hit.getZ());
@@ -185,7 +219,7 @@
                 Chat.log("[Minerar] Aviso de inventario indisponivel; mantida venda por tempo: " + listenError);
             }
         }
-        Chat.log("[Minerar] Minerar/Vender v9: movimento e mira automaticos, aproxima e minera em niveis diferentes, /vender a cada 2 minutos. Mesma tecla para parar.");
+        Chat.log("[Minerar] Minerar/Vender v10: movimento e mira automaticos, aproxima e minera em niveis diferentes, /vender a cada 2 minutos. Mesma tecla para parar.");
         while (GlobalVars.getString(RUN) === token && GlobalVars.getString(STOP) !== token) {
             if (!Player.getPlayer()) { reason = "desconectou"; break; }
             var screen = Hud.getOpenScreen();

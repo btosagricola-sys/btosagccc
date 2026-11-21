@@ -80,7 +80,11 @@ function autonomousCase(playerY, stateAvailable, nullAir = false) {
     const keys = new Map(), removed = new Set();
     const p = { x: 0.5, z: 0.5, yaw: 0, pitch: 35, getX() { return this.x; }, getZ() { return this.z; },
         getY: () => playerY, getYaw() { return this.yaw; }, getPitch() { return this.pitch; },
-        lookAt(yaw, pitch) { this.yaw = yaw; this.pitch = pitch; } };
+        lookAt(yaw, pitch) {
+            const step = ((yaw - this.yaw + 180) % 360 + 360) % 360 - 180;
+            assert(Math.abs(step) <= 6.00001, 'abrupt mining camera movement');
+            this.yaw = yaw; this.pitch = pitch;
+        } };
     function block(x, y, z) {
         const solid = y === 63 && Math.abs(x) < 10 && Math.abs(z) < 10 && !removed.has(`${x},${z}`);
         if (!solid && nullAir) return null;
@@ -134,7 +138,11 @@ function pitCase(resetAt) {
     const keys = new Map(), removed = new Set(['0,63,0']);
     const p = { x: 0.5, y: 63, z: 0.5, yaw: 0, pitch: 35,
         getX() { return this.x; }, getY() { return this.y; }, getZ() { return this.z; }, getYaw() { return this.yaw; },
-        lookAt(yaw, pitch) { this.yaw = yaw; this.pitch = pitch; } };
+        lookAt(yaw, pitch) {
+            const step = ((yaw - this.yaw + 180) % 360 + 360) % 360 - 180;
+            assert(Math.abs(step) <= 6.00001, 'abrupt mining camera movement');
+            this.yaw = yaw; this.pitch = pitch;
+        } };
     function block(x, y, z) {
         return y >= 55 && y <= 63 && !removed.has(`${x},${y},${z}`) ? { getId: () => 'minecraft:lapis_ore' } : null;
     }
@@ -154,7 +162,7 @@ function pitCase(resetAt) {
     vm.runInContext(original.replace('    GlobalVars.putString(RUN, token);',
         '    testHook = { step: mineStep, safe: safePosition }; return; GlobalVars.putString(RUN, token);'), ctx);
     let moved = 0, wallMined = false, afterReset = 0;
-    for (let tick = 0; tick < 400; tick++) {
+    for (let tick = 0; tick < 800; tick++) {
         if (tick === resetAt) {
             removed.clear(); p.x = 0.5; p.z = 0.5; p.y = 64;
         }
@@ -221,5 +229,17 @@ test('manually opened Vender menu is recognized and sold without waiting for nex
     f.s.onTick = () => { if (f.s.tick === 10) f.s.menu = {}; };
     f.run(); assert.strictEqual(f.commands.length, 0);
     assert.deepStrictEqual(f.clicks, [10]); assert.strictEqual(f.s.closed, 1);
+});
+test('normal target selection ignores ore behind the player and keeps front ore', () => {
+    const ore = new Set(['0,63,-2']);
+    const p = { getX: () => 0.5, getY: () => 64, getZ: () => 0.5, getYaw: () => 0 };
+    const ctx = vm.createContext({ GlobalVars: { getString: () => '' }, Player: { getPlayer: () => p },
+        Hud: { getOpenScreen: () => null }, testHook: null,
+        World: { getBlock: (x, y, z) => ore.has(`${x},${y},${z}`) ? { getId: () => 'minecraft:lapis_ore' } : null } });
+    vm.runInContext(original.replace('    GlobalVars.putString(RUN, token);',
+        '    testHook = function () { blockCache = {}; return selectTarget(Player.getPlayer(), 0); }; return; GlobalVars.putString(RUN, token);'), ctx);
+    assert.strictEqual(ctx.testHook(), null, 'selected a block behind the player');
+    ore.add('0,63,2');
+    assert.strictEqual(ctx.testHook().z, 2);
 });
 console.log(count + ' tests passed (mocked JsMacros APIs).');
