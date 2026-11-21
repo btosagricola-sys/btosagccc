@@ -1,4 +1,4 @@
-# Minerar e vender v8 — JsMacros
+# Minerar e vender v9 — JsMacros
 
 Substitua todo o código de seu script pelo conteúdo de `minerar-vender.txt`.
 Selecione esse arquivo (não a pasta Macros) e execute pelo JsMacros. Também
@@ -31,15 +31,17 @@ apoio; chunks descarregados são rejeitados quando há API de consulta.
 
 ## Venda
 
-Após dois minutos ou ao receber “inventário cheio” no chat, pausa movimento e ataque, envia `/vender`, procura um único
-botão `Vender` no menu `Vender`, clica uma vez e fecha após aproximadamente um
+Após dois minutos ou ao receber “inventário cheio” no chat, pausa movimento e ataque, envia `/vender`, aguarda seis ticks e clica
+com botão esquerdo no slot 10 do menu `Vender`, uma vez, e fecha após aproximadamente um
 segundo. Se o servidor fechar ao clicar, retoma automaticamente. O próximo
 intervalo de dois minutos começa após a retomada. Confira o recibo da venda:
 o clique não comprova que a transação foi concluída.
 
-Não clica no inventário do jogador. Em menu inesperado, botão ausente ou
-duplicado, cursor ocupado ou erro de API, para e mostra o motivo. Menus manuais
-pausam as ações; desconectar interrompe. Não reconecta nem resolve anti-macro.
+Usa a posição fixa autorizada na imagem: segunda linha, segunda coluna do menu
+de três linhas. Não pesquisa nomes de itens, mapeamento de slots nem cursor.
+Deixe o cursor vazio antes de iniciar. Se o layout do servidor mudar, ajuste
+`SELL_SLOT` antes de usar. Em menu com outro título ou erro de API, para e mostra
+o motivo. Outros menus manuais pausam as ações; desconectar interrompe.
 
 ## Compatibilidade e validação
 
@@ -65,8 +67,8 @@ Se um alvo fica bloqueado ou não muda em quatro segundos, tenta outro.
 Não depende do texto específico de reset enviado pelo servidor.
 
 Inclui esponja normal/molhada. Bedrock não é alvo de ataque; alvos encobertos
-por ela são adiados. A venda busca o botão pelo nome `Vender` (verde na imagem),
-não pela cor da interface. O aviso de inventário usa `RecvMessage` e depende
+por ela são adiados. A venda usa o slot fixo autorizado na imagem,
+sem procurar cor ou nome do item. O aviso de inventário usa `RecvMessage` e depende
 dessa API no fork instalado; a venda a cada dois minutos continua independente.
 Depois de vender, aguarda cinco segundos para aceitar outro aviso de cheio.
 O chat mostra o motivo ao enviar `/vender`. Se constar “Parada: desativada”,
@@ -75,11 +77,10 @@ e deixe a execução ativa.
 
 ## Clique no menu da versão 1.8.9
 
-A v8 aceita cursor e slots vazios como `null`, espera seis ticks para os itens
-do menu carregarem e usa clique esquerdo explícito. Se o mapeamento
-`container` não listar o botão, verifica o slot 10 mostrado na imagem. Só clica
-se o menu for `Vender` e o nome do item também for `Vender`. Botões duplicados
-continuam sendo rejeitados. Se abrir esse menu manualmente durante a execução,
-a macro também o reconhece e realiza a venda. Outros menus permanecem pausados.
-Caso continue parando, envie a linha completa após `[Minerar] Parada:`; as
-correções de compatibilidade não confirmam o motivo exato sem essa mensagem.
+A v9 clica diretamente no slot 10 com `inv.click(10, 0)`, conforme solicitado
+pelo usuário com base na imagem. Confere somente o título `Vender` antes do
+clique e espera seis ticks para carregar. Não chama `getHeld`, `getSlots`,
+`getSlot` ou `getName` durante a venda. Se abrir esse menu manualmente durante
+a execução, a macro também o reconhece e realiza a venda.
+Caso continue parando, envie a linha completa após `[Minerar] Parada:` para
+identificar se há outro método incompatível. Não foi executado no servidor real.
